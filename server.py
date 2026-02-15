@@ -1059,6 +1059,148 @@ def configure_providers():
 # API Routes — Monitoring
 # ═══════════════════════════════════════════════════════════
 
+
+# ═══════════════════════════════════════════════════════════
+# OSINT ENDPOINTS (Deep Intelligence)
+# ═══════════════════════════════════════════════════════════
+
+@app.route(f"{API_PREFIX}/osint/email", methods=["POST"])
+@require_auth
+def osint_email():
+    """Deep OSINT on email address using theHarvester + holehe"""
+    data = request.get_json()
+    email = data.get("email")
+    
+    if not email or "@" not in email:
+        return jsonify({"error": "Valid email required"}), 400
+    
+    try:
+        # Run osint_contact.py for email
+        result = subprocess.run(
+            ["./osint_contact.py", "email", email],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd="/home/dmx/.openclaw/workspace/projects/contactiq"
+        )
+        
+        # Try to parse JSON from output file
+        import json as json_lib
+        output_file = f"/tmp/osint_email_{email.replace('@', '_at_').replace('.', '_')}.json"
+        try:
+            with open(output_file, "r") as f:
+                osint_data = json_lib.load(f)
+                return jsonify(osint_data)
+        except:
+            return jsonify({
+                "email": email,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "status": "completed" if result.returncode == 0 else "error"
+            })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route(f"{API_PREFIX}/osint/username", methods=["POST"])
+@require_auth
+def osint_username():
+    """Find username across 300+ social platforms using sherlock"""
+    data = request.get_json()
+    username = data.get("username")
+    
+    if not username:
+        return jsonify({"error": "Username required"}), 400
+    
+    try:
+        result = subprocess.run(
+            ["./osint_contact.py", "username", username],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd="/home/dmx/.openclaw/workspace/projects/contactiq"
+        )
+        
+        import json as json_lib
+        output_file = f"/tmp/osint_username_{username}.json"
+        try:
+            with open(output_file, "r") as f:
+                return jsonify(json_lib.load(f))
+        except:
+            return jsonify({
+                "username": username,
+                "stdout": result.stdout,
+                "status": "completed" if result.returncode == 0 else "error"
+            })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route(f"{API_PREFIX}/osint/phone", methods=["POST"])
+@require_auth
+def osint_phone():
+    """Phone number intelligence using phoneinfoga"""
+    data = request.get_json()
+    phone = data.get("phone")
+    
+    if not phone:
+        return jsonify({"error": "Phone number required"}), 400
+    
+    try:
+        result = subprocess.run(
+            ["./osint_contact.py", "phone", phone],
+            capture_output=True,
+            text=True,
+            timeout=90,
+            cwd="/home/dmx/.openclaw/workspace/projects/contactiq"
+        )
+        
+        import json as json_lib
+        clean_phone = ''.join(filter(str.isdigit, phone))
+        output_file = f"/tmp/osint_phone_{clean_phone}.json"
+        try:
+            with open(output_file, "r") as f:
+                return jsonify(json_lib.load(f))
+        except:
+            return jsonify({
+                "phone": phone,
+                "stdout": result.stdout,
+                "status": "completed" if result.returncode == 0 else "error"
+            })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route(f"{API_PREFIX}/osint/domain", methods=["POST"])
+@require_auth
+def osint_domain():
+    """Domain OSINT: WHOIS, DNS, subdomain enumeration"""
+    data = request.get_json()
+    domain = data.get("domain")
+    
+    if not domain:
+        return jsonify({"error": "Domain required"}), 400
+    
+    try:
+        result = subprocess.run(
+            ["./osint_contact.py", "domain", domain],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd="/home/dmx/.openclaw/workspace/projects/contactiq"
+        )
+        
+        import json as json_lib
+        output_file = f"/tmp/osint_domain_{domain.replace('.', '_')}.json"
+        try:
+            with open(output_file, "r") as f:
+                return jsonify(json_lib.load(f))
+        except:
+            return jsonify({
+                "domain": domain,
+                "stdout": result.stdout,
+                "status": "completed" if result.returncode == 0 else "error"
+            })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route(f"{API_PREFIX}/monitoring/scan/<contact_id>", methods=["POST"])
 @require_auth
 def scan_contact(contact_id):
@@ -1266,6 +1408,12 @@ def get_tool_definitions():
         {"name": "monitor_contact", "description": "Start or stop monitoring a contact for news and changes."},
         {"name": "add_contact", "description": "Add a new contact to the user's list."},
         {"name": "contact_report", "description": "Generate a comprehensive intelligence report about a contact."},
+    
+        # OSINT Tools (Deep Intelligence)
+        {"name": "osint_email", "description": "Deep OSINT on email address: find related emails, platform registrations, domain intelligence using theHarvester + holehe."},
+        {"name": "osint_username", "description": "Find username across 300+ social platforms (Twitter, GitHub, Instagram, LinkedIn, etc.) using sherlock."},
+        {"name": "osint_phone", "description": "Phone number intelligence: carrier, validation, location using phoneinfoga."},
+        {"name": "osint_domain", "description": "Domain OSINT: WHOIS, DNS records, subdomain enumeration, company information."},
     ]
     return jsonify({"tools": tools, "format": fmt})
 
@@ -1425,6 +1573,85 @@ def execute_tool():
 
             return jsonify({"success": True, "tool": tool_name, "data": report})
 
+
+        # ═══ OSINT Tool Handlers ═══
+        
+        elif tool_name == "osint_email":
+            email = arguments.get("email")
+            if not email or "@" not in email:
+                return jsonify({"success": False, "tool": tool_name, "message": "Valid email required"})
+            
+            try:
+                result = subprocess.run(
+                    ["./osint_contact.py", "email", email],
+                    capture_output=True, text=True, timeout=180,
+                    cwd="/home/dmx/.openclaw/workspace/projects/contactiq"
+                )
+                import json as json_lib
+                output_file = f"/tmp/osint_email_{email.replace('@', '_at_').replace('.', '_')}.json"
+                with open(output_file, "r") as f:
+                    osint_data = json_lib.load(f)
+                return jsonify({"success": True, "tool": tool_name, "data": osint_data})
+            except Exception as e:
+                return jsonify({"success": False, "tool": tool_name, "message": str(e)})
+
+        elif tool_name == "osint_username":
+            username = arguments.get("username")
+            if not username:
+                return jsonify({"success": False, "tool": tool_name, "message": "Username required"})
+            
+            try:
+                result = subprocess.run(
+                    ["./osint_contact.py", "username", username],
+                    capture_output=True, text=True, timeout=180,
+                    cwd="/home/dmx/.openclaw/workspace/projects/contactiq"
+                )
+                import json as json_lib
+                output_file = f"/tmp/osint_username_{username}.json"
+                with open(output_file, "r") as f:
+                    osint_data = json_lib.load(f)
+                return jsonify({"success": True, "tool": tool_name, "data": osint_data})
+            except Exception as e:
+                return jsonify({"success": False, "tool": tool_name, "message": str(e)})
+
+        elif tool_name == "osint_phone":
+            phone = arguments.get("phone")
+            if not phone:
+                return jsonify({"success": False, "tool": tool_name, "message": "Phone number required"})
+            
+            try:
+                result = subprocess.run(
+                    ["./osint_contact.py", "phone", phone],
+                    capture_output=True, text=True, timeout=90,
+                    cwd="/home/dmx/.openclaw/workspace/projects/contactiq"
+                )
+                import json as json_lib
+                clean_phone = ''.join(filter(str.isdigit, phone))
+                output_file = f"/tmp/osint_phone_{clean_phone}.json"
+                with open(output_file, "r") as f:
+                    osint_data = json_lib.load(f)
+                return jsonify({"success": True, "tool": tool_name, "data": osint_data})
+            except Exception as e:
+                return jsonify({"success": False, "tool": tool_name, "message": str(e)})
+
+        elif tool_name == "osint_domain":
+            domain = arguments.get("domain")
+            if not domain:
+                return jsonify({"success": False, "tool": tool_name, "message": "Domain required"})
+            
+            try:
+                result = subprocess.run(
+                    ["./osint_contact.py", "domain", domain],
+                    capture_output=True, text=True, timeout=120,
+                    cwd="/home/dmx/.openclaw/workspace/projects/contactiq"
+                )
+                import json as json_lib
+                output_file = f"/tmp/osint_domain_{domain.replace('.', '_')}.json"
+                with open(output_file, "r") as f:
+                    osint_data = json_lib.load(f)
+                return jsonify({"success": True, "tool": tool_name, "data": osint_data})
+            except Exception as e:
+                return jsonify({"success": False, "tool": tool_name, "message": str(e)})
         else:
             available = ["search_contacts", "get_contact", "enrich_contact", "get_alerts",
                         "monitor_contact", "add_contact", "contact_report"]

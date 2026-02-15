@@ -1085,4 +1085,187 @@ ALL_PROVIDERS = {
     "opencorporates": {"class": OpenCorporatesAPI, "category": "company", "cost": "free", "key": False},
     "opensanctions": {"class": OpenSanctionsAPI, "category": "compliance", "cost": "free", "key": False},
     "mailcheck": {"class": MailcheckAPI, "category": "identity", "cost": "free", "key": False},
+    # OSINT Providers (Deep Intelligence)
+    "sherlock": {"class": SherlockProvider, "category": "osint", "cost": "free", "key": False},
+    "theharvester": {"class": TheHarvesterProvider, "category": "osint", "cost": "free", "key": False},
+    "holehe": {"class": HoleheProvider, "category": "osint", "cost": "free", "key": False},
+    "subfinder": {"class": SubfinderProvider, "category": "osint", "cost": "free", "key": False},
+    "phoneinfoga": {"class": PhoneInfogaProvider, "category": "osint", "cost": "free", "key": False},
 }
+
+# ═══════════════════════════════════════════════════════════
+# OSINT PROVIDERS (Deep Intelligence)
+# ═══════════════════════════════════════════════════════════
+
+import subprocess
+import json as json_lib
+
+class SherlockProvider:
+    """
+    Username search across 300+ social platforms
+    Tool: sherlock (installed in /usr/local/bin/)
+    """
+    name = "sherlock"
+    
+    def enrich(self, username, **kwargs):
+        """Find username across social networks"""
+        try:
+            # Run sherlock with JSON output
+            result = subprocess.run(
+                ["/usr/local/bin/sherlock", username, "--timeout", "10", "--json", 
+                 "--output", f"/tmp/sherlock_{username}.json"],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            
+            # Read JSON output
+            try:
+                with open(f"/tmp/sherlock_{username}.json", "r") as f:
+                    data = json_lib.load(f)
+                    platforms = list(data.keys())
+                    return {
+                        "username": username,
+                        "found_on": platforms,
+                        "profile_count": len(platforms),
+                        "profiles": data,
+                        "source": "sherlock"
+                    }
+            except:
+                return {"username": username, "found_on": [], "error": "Failed to parse sherlock output"}
+                
+        except subprocess.TimeoutExpired:
+            return {"username": username, "error": "Sherlock timeout (120s)"}
+        except Exception as e:
+            return {"username": username, "error": str(e)}
+
+class TheHarvesterProvider:
+    """
+    Email enumeration and domain intelligence
+    Tool: theHarvester (installed in ~/.local/bin/)
+    """
+    name = "theharvester"
+    
+    def enrich(self, email_or_domain, **kwargs):
+        """Email/domain enumeration using theHarvester"""
+        try:
+            domain = email_or_domain.split("@")[1] if "@" in email_or_domain else email_or_domain
+            
+            result = subprocess.run(
+                ["theHarvester", "-d", domain, "-b", "all", 
+                 "-f", f"/tmp/harvest_{domain}"],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            
+            return {
+                "domain": domain,
+                "status": "completed" if result.returncode == 0 else "error",
+                "output": result.stdout[:500],  # truncate
+                "source": "theHarvester"
+            }
+        except Exception as e:
+            return {"domain": email_or_domain, "error": str(e)}
+
+class HoleheProvider:
+    """
+    Check email registrations on social platforms
+    Tool: holehe (if installed)
+    """
+    name = "holehe"
+    
+    def enrich(self, email, **kwargs):
+        """Check email platform registrations"""
+        try:
+            # Check if holehe is installed
+            which_result = subprocess.run(["which", "holehe"], capture_output=True)
+            if which_result.returncode != 0:
+                return {"email": email, "error": "holehe not installed", "install": "pip install holehe"}
+            
+            result = subprocess.run(
+                ["holehe", email],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            return {
+                "email": email,
+                "platforms": result.stdout,
+                "source": "holehe"
+            }
+        except Exception as e:
+            return {"email": email, "error": str(e)}
+
+class SubfinderProvider:
+    """
+    Subdomain enumeration
+    Tool: subfinder (installed in ~/go/bin/)
+    """
+    name = "subfinder"
+    
+    def enrich(self, domain, **kwargs):
+        """Enumerate subdomains using subfinder"""
+        try:
+            home = subprocess.run(["echo", "$HOME"], capture_output=True, text=True, shell=False).stdout.strip()
+            if not home:
+                import os
+                home = os.path.expanduser("~")
+            
+            result = subprocess.run(
+                [f"{home}/go/bin/subfinder", "-d", domain, "-silent", "-timeout", "60"],
+                capture_output=True,
+                text=True,
+                timeout=90
+            )
+            
+            if result.returncode == 0:
+                subdomains = [s.strip() for s in result.stdout.split('\n') if s.strip()]
+                return {
+                    "domain": domain,
+                    "subdomains": subdomains[:100],  # limit to 100
+                    "subdomain_count": len(subdomains),
+                    "source": "subfinder"
+                }
+            else:
+                return {"domain": domain, "error": result.stderr}
+        except Exception as e:
+            return {"domain": domain, "error": str(e)}
+
+class PhoneInfogaProvider:
+    """
+    Phone number intelligence
+    Tool: phoneinfoga (if installed)
+    """
+    name = "phoneinfoga"
+    
+    def enrich(self, phone, **kwargs):
+        """Phone number OSINT"""
+        try:
+            # Check if phoneinfoga is installed
+            which_result = subprocess.run(["which", "phoneinfoga"], capture_output=True)
+            if which_result.returncode != 0:
+                return {
+                    "phone": phone, 
+                    "error": "phoneinfoga not installed",
+                    "note": "Phone OSINT limited without specialized tools"
+                }
+            
+            clean_phone = ''.join(filter(str.isdigit, phone))
+            result = subprocess.run(
+                ["phoneinfoga", "scan", "-n", clean_phone],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            return {
+                "phone": phone,
+                "clean_phone": clean_phone,
+                "output": result.stdout,
+                "source": "phoneinfoga"
+            }
+        except Exception as e:
+            return {"phone": phone, "error": str(e)}
+

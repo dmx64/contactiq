@@ -85,3 +85,136 @@ python3 test_providers.py
 ## License
 
 MIT
+
+## OSINT Intelligence (NEW!)
+
+Deep contact investigation using 5 specialized OSINT tools.
+
+### OSINT Providers
+
+| Tool | Purpose | Coverage | Speed |
+|------|---------|----------|-------|
+| **Sherlock** | Username → Social profiles | 300+ platforms | ~2 min |
+| **theHarvester** | Email → Related data | Multiple sources | ~1 min |
+| **holehe** | Email → Platform registrations | 120+ platforms | ~30 sec |
+| **subfinder** | Domain → Subdomains | Passive enum | ~30 sec |
+| **phoneinfoga** | Phone → Carrier/validation | Phone intelligence | ~30 sec |
+
+### OSINT Endpoints
+
+```bash
+# Email OSINT - Find related emails, platform registrations
+curl -X POST http://localhost:5000/api/v1/osint/email \
+  -H "X-API-Key: ciq_..." \
+  -d '{"email": "target@example.com"}'
+
+# Username search across 300+ social platforms
+curl -X POST http://localhost:5000/api/v1/osint/username \
+  -H "X-API-Key: ciq_..." \
+  -d '{"username": "johndoe"}'
+
+# Phone number intelligence
+curl -X POST http://localhost:5000/api/v1/osint/phone \
+  -H "X-API-Key: ciq_..." \
+  -d '{"phone": "+1234567890"}'
+
+# Domain OSINT - WHOIS, DNS, subdomains
+curl -X POST http://localhost:5000/api/v1/osint/domain \
+  -H "X-API-Key: ciq_..." \
+  -d '{"domain": "example.com"}'
+```
+
+### AI OSINT Tools
+
+```bash
+# Get OSINT tools
+curl http://localhost:5000/api/v1/agent/tools?format=openai \
+  -H "X-API-Key: ciq_..."
+
+# Execute OSINT tool
+curl -X POST http://localhost:5000/api/v1/agent/tool \
+  -H "X-API-Key: ciq_..." \
+  -d '{
+    "tool_name": "osint_email",
+    "arguments": {"email": "target@example.com"}
+  }'
+```
+
+**Available OSINT tools:**
+- `osint_email` - Deep email investigation
+- `osint_username` - Social profile search
+- `osint_phone` - Phone validation & carrier
+- `osint_domain` - Domain & subdomain intel
+
+### OSINT CLI
+
+Direct OSINT from command line:
+
+```bash
+# Email OSINT
+./osint_contact.py email john@example.com
+
+# Username search
+./osint_contact.py username johndoe
+
+# Phone OSINT
+./osint_contact.py phone +1234567890
+
+# Domain OSINT
+./osint_contact.py domain example.com
+```
+
+Results saved to `/tmp/osint_<type>_<value>.json`
+
+### Combined Intelligence
+
+Use both standard providers + OSINT for maximum intel:
+
+```python
+# 1. Standard enrichment (GitHub, Wikidata, Gravatar, etc.)
+POST /api/v1/enrichment/enrich
+{
+  "contact_id": "123",
+  "providers": ["github", "wikidata", "gravatar"]
+}
+
+# 2. OSINT deep dive
+POST /api/v1/osint/email
+{"email": "contact@example.com"}
+
+POST /api/v1/osint/username
+{"username": "contact_username"}
+
+# Result: Comprehensive 360° profile
+```
+
+### Legal & Ethical OSINT
+
+**CRITICAL:** OSINT must be conducted legally and ethically.
+
+**Legal:**
+✅ Public information only  
+✅ No authentication bypass  
+✅ Respect Terms of Service  
+✅ No unauthorized access  
+
+**Illegal:**
+❌ Hacking or password cracking  
+❌ Bypassing security  
+❌ Harassment or stalking  
+❌ Violating platform ToS  
+
+See `references/legal.md` for full guidelines.
+
+### Total Data Sources
+
+**Standard Providers:** 11
+- GitHub, Wikidata, Gravatar, Mailcheck, Clearbit Logo
+- OpenCorporates, SEC EDGAR, OpenSanctions
+- Google News, GNews, Guardian
+
+**OSINT Tools:** 5
+- Sherlock, theHarvester, holehe, subfinder, phoneinfoga
+
+**Total:** 16 intelligence sources
+
