@@ -1073,32 +1073,10 @@ class EnrichmentPipeline:
 # PROVIDER REGISTRY
 # ═══════════════════════════════════════════════════════════
 
-ALL_PROVIDERS = {
-    "google_news_rss": {"class": GoogleNewsRSS, "category": "news", "cost": "free", "key": False},
-    "github": {"class": GitHubAPI, "category": "person", "cost": "free", "key": False},
-    "wikidata": {"class": WikidataAPI, "category": "person", "cost": "free", "key": False},
-    "gravatar": {"class": GravatarAPI, "category": "person", "cost": "free", "key": False},
-    "clearbit_logo": {"class": ClearbitLogo, "category": "company", "cost": "free", "key": False},
-    "gnews": {"class": GNewsAPI, "category": "news", "cost": "freemium", "key": True},
-    "guardian": {"class": GuardianAPI, "category": "news", "cost": "freemium", "key": True},
-    "sec_edgar": {"class": SECEDGAR, "category": "company", "cost": "free", "key": False},
-    "opencorporates": {"class": OpenCorporatesAPI, "category": "company", "cost": "free", "key": False},
-    "opensanctions": {"class": OpenSanctionsAPI, "category": "compliance", "cost": "free", "key": False},
-    "mailcheck": {"class": MailcheckAPI, "category": "identity", "cost": "free", "key": False},
-    # OSINT Providers (Deep Intelligence)
-    "sherlock": {"class": SherlockProvider, "category": "osint", "cost": "free", "key": False},
-    "theharvester": {"class": TheHarvesterProvider, "category": "osint", "cost": "free", "key": False},
-    "holehe": {"class": HoleheProvider, "category": "osint", "cost": "free", "key": False},
-    "subfinder": {"class": SubfinderProvider, "category": "osint", "cost": "free", "key": False},
-    "phoneinfoga": {"class": PhoneInfogaProvider, "category": "osint", "cost": "free", "key": False},
-}
 
 # ═══════════════════════════════════════════════════════════
 # OSINT PROVIDERS (Deep Intelligence)
 # ═══════════════════════════════════════════════════════════
-
-import subprocess
-import json as json_lib
 
 class SherlockProvider:
     """
@@ -1268,4 +1246,33 @@ class PhoneInfogaProvider:
             }
         except Exception as e:
             return {"phone": phone, "error": str(e)}
+
+
+
+ALL_PROVIDERS = {
+    "google_news_rss": {"class": GoogleNewsRSS, "category": "news", "cost": "free", "key": False},
+    "github": {"class": GitHubAPI, "category": "person", "cost": "free", "key": False},
+    "wikidata": {"class": WikidataAPI, "category": "person", "cost": "free", "key": False},
+    "gravatar": {"class": GravatarAPI, "category": "person", "cost": "free", "key": False},
+    "clearbit_logo": {"class": ClearbitLogo, "category": "company", "cost": "free", "key": False},
+    "gnews": {"class": GNewsAPI, "category": "news", "cost": "freemium", "key": True},
+    "guardian": {"class": GuardianAPI, "category": "news", "cost": "freemium", "key": True},
+    "sec_edgar": {"class": SECEDGAR, "category": "company", "cost": "free", "key": False},
+    "opencorporates": {"class": OpenCorporatesAPI, "category": "company", "cost": "free", "key": False},
+    "opensanctions": {"class": OpenSanctionsAPI, "category": "compliance", "cost": "free", "key": False},
+    "mailcheck": {"class": MailcheckAPI, "category": "identity", "cost": "free", "key": False},
+    # OSINT Providers (Deep Intelligence)
+    "sherlock": {"class": SherlockProvider, "category": "osint", "cost": "free", "key": False},
+    "theharvester": {"class": TheHarvesterProvider, "category": "osint", "cost": "free", "key": False},
+    "holehe": {"class": HoleheProvider, "category": "osint", "cost": "free", "key": False},
+    "subfinder": {"class": SubfinderProvider, "category": "osint", "cost": "free", "key": False},
+    "phoneinfoga": {"class": PhoneInfogaProvider, "category": "osint", "cost": "free", "key": False},
+}
+
+# ═══════════════════════════════════════════════════════════
+# OSINT PROVIDERS (Deep Intelligence)
+# ═══════════════════════════════════════════════════════════
+
+import subprocess
+import json as json_lib
 

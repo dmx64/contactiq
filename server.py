@@ -1,3 +1,4 @@
+import subprocess
 """
 ContactIQ — AI-Powered Contact Intelligence Platform
 Self-contained Flask server with SQLite for testing.
@@ -31,7 +32,7 @@ from providers import (
 APP_NAME = "ContactIQ"
 APP_VERSION = "0.1.0"
 API_PREFIX = "/api/v1"
-DB_PATH = "/home/claude/contactiq_test/contactiq.db"
+DB_PATH = "/home/dmx/.openclaw/workspace/projects/contactiq/data/contactiq.db"
 SECRET_KEY = "test-secret-key-for-dev"
 TOKEN_EXPIRE_HOURS = 24
 ALERT_RELEVANCE_THRESHOLD = 0.6
