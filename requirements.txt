@@ -1,0 +1,4 @@
+# ContactIQ — Dependencies
+Flask>=3.0
+PyJWT>=2.7
+requests>=2.31
