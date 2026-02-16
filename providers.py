@@ -14,6 +14,9 @@ from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import time
 
+# LinkedIn Provider (12th API provider)
+from linkedin_provider import LinkedInProvider
+
 TIMEOUT = 2  # seconds — short for fast fallback to mock when offline
 USER_AGENT = "ContactIQ/0.1 (contact-intelligence-platform)"
 
@@ -1267,6 +1270,8 @@ ALL_PROVIDERS = {
     "holehe": {"class": HoleheProvider, "category": "osint", "cost": "free", "key": False},
     "subfinder": {"class": SubfinderProvider, "category": "osint", "cost": "free", "key": False},
     "phoneinfoga": {"class": PhoneInfogaProvider, "category": "osint", "cost": "free", "key": False},
+    # LinkedIn Provider (12th API provider, 17th total data source)
+    "linkedin": {"class": LinkedInProvider, "category": "professional", "cost": "freemium", "key": True},
 }
 
 # ═══════════════════════════════════════════════════════════

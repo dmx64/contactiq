@@ -25,6 +25,9 @@ from providers import (
     OpenCorporatesAPI, OpenSanctionsAPI, MailcheckAPI, ALL_PROVIDERS,
 )
 
+# LinkedIn provider (12th API provider)
+from linkedin_provider import linkedin_bp, LinkedInProvider, LINKEDIN_AGENT_TOOLS, execute_linkedin_tool
+
 # ═══════════════════════════════════════════════════════════
 # Configuration
 # ═══════════════════════════════════════════════════════════
@@ -39,6 +42,9 @@ ALERT_RELEVANCE_THRESHOLD = 0.6
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = SECRET_KEY
+
+# Register LinkedIn API blueprint
+app.register_blueprint(linkedin_bp)
 
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
@@ -1416,6 +1422,10 @@ def get_tool_definitions():
         {"name": "osint_phone", "description": "Phone number intelligence: carrier, validation, location using phoneinfoga."},
         {"name": "osint_domain", "description": "Domain OSINT: WHOIS, DNS records, subdomain enumeration, company information."},
     ]
+    
+    # Add LinkedIn tools (12th API provider)
+    tools.extend(LINKEDIN_AGENT_TOOLS)
+    
     return jsonify({"tools": tools, "format": fmt})
 
 
@@ -1653,6 +1663,12 @@ def execute_tool():
                 return jsonify({"success": True, "tool": tool_name, "data": osint_data})
             except Exception as e:
                 return jsonify({"success": False, "tool": tool_name, "message": str(e)})
+        
+        # ═══ LinkedIn Tool Handlers ═══
+        elif tool_name.startswith('linkedin_'):
+            result = execute_linkedin_tool(tool_name, arguments)
+            return jsonify(result)
+        
         else:
             available = ["search_contacts", "get_contact", "enrich_contact", "get_alerts",
                         "monitor_contact", "add_contact", "contact_report"]
