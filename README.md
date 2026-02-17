@@ -1,220 +1,201 @@
 # ContactIQ
 
-AI-powered contact intelligence platform. Enriches contacts from 11 free public APIs, monitors news in real-time, screens against sanctions lists, and exposes a universal tool interface for AI agents (OpenAI / Claude / MCP).
+**Comprehensive Contact Intelligence Platform** - Mobile app with self-hosted backend that combines 17 data sources for contact enrichment, caller ID, OSINT investigations, and digital business cards.
 
-## Quick Start
+## 🚀 Quick Start
 
+### Backend Setup
 ```bash
+cd backend
 pip install -r requirements.txt
 cp .env.example .env
-python3 server.py
+python server.py
+```
+Server starts at `http://localhost:5000`
+
+### Mobile App Setup  
+```bash
+cd mobile
+npm install
+npx expo start
 ```
 
-Server starts at `http://localhost:5000`. API docs at `/api/v1/agent/tools`.
+## 📱 Mobile Application
 
-## API Overview
+React Native app with **6 core screens** and **2,058 lines of code**:
+
+- **Dashboard** - Overview and quick actions
+- **Contacts** - Contact management and enrichment
+- **Caller ID** - Real-time caller identification with spam detection
+- **OSINT** - Deep investigation tools across 5 specialized platforms
+- **QR Card** - Digital business card generator and scanner
+- **Settings** - Profile and app configuration
+
+### Tech Stack
+- **Frontend**: React Native + Expo
+- **State Management**: Zustand
+- **Authentication**: Expo SecureStore + JWT
+- **UI Theme**: Dark intelligence-themed interface
+- **Navigation**: React Navigation v6
+
+## 🔧 Backend Architecture
+
+Flask API server with **56 endpoints** across 7 modules:
 
 | Module | Endpoints | Description |
-|---|---|---|
-| Auth | `/auth/register`, `/auth/login`, `/auth/api-key` | JWT + API key dual auth |
-| Contacts | `/contacts` (CRUD), `/contacts/import` | Create, search, bulk import |
-| Enrichment | `/enrichment/enrich`, `/enrichment/providers` | Multi-provider enrichment |
-| Monitoring | `/monitoring/scan`, `/monitoring/stats` | News scanning & alerts |
-| Alerts | `/alerts`, `/alerts/summary` | Filter, read, dismiss alerts |
-| Agent Tools | `/agent/tool`, `/agent/tools` | Universal AI tool dispatcher |
+|--------|-----------|-------------|
+| **Auth** | 8 endpoints | JWT + API key authentication |
+| **Contacts** | 12 endpoints | CRUD, search, bulk import, enrichment |
+| **Caller ID** | 6 endpoints | Real-time identification, spam detection |
+| **OSINT** | 10 endpoints | Deep investigation across 5 tools |
+| **QR Cards** | 8 endpoints | Digital business card management |
+| **Monitoring** | 7 endpoints | News scanning, alerts, sanctions |
+| **Agent Tools** | 5 endpoints | AI agent integration (OpenAI/Claude) |
 
-## Data Providers (11 integrated)
+## 📊 Data Sources (17 Total)
 
-All providers work with **$0/month** budget. Mock fallback when offline.
-
-| Provider | Type | Limit | Data |
-|---|---|---|---|
-| GitHub API | Person | 5,000/hr | Profile, company, repos, skills |
-| Wikidata | Person | ∞ | Bio, occupation, education, nationality |
-| Gravatar | Person | ∞ | Avatar, display name |
-| Mailcheck.ai | Identity | ∞ | Email validation, disposable check |
+### API Providers (12)
+| Provider | Type | Rate Limit | Data Coverage |
+|----------|------|------------|---------------|
+| GitHub API | Person | 5,000/hr | Profiles, repos, skills |
+| Wikidata | Person | ∞ | Bio, occupation, nationality |
+| Gravatar | Person | ∞ | Avatars, display names |
+| Mailcheck.ai | Email | ∞ | Validation, disposable detection |
 | Clearbit Logo | Company | ∞ | Company logos by domain |
-| OpenCorporates | Company | Free/research | Directors, registrations, 170+ countries |
-| SEC EDGAR | Company | 10/sec | US public company filings & officers |
-| OpenSanctions | Compliance | Free bulk | Sanctions, PEP screening |
-| Google News RSS | News | ∞ | Unlimited news monitoring |
-| GNews API | News | 100/day | 60K+ sources (needs free key) |
-| Guardian API | News | 5,000/day | Full article text (needs free key) |
+| OpenCorporates | Company | Free tier | 170+ countries, directors |
+| SEC EDGAR | Company | 10/sec | US public filings, officers |
+| OpenSanctions | Compliance | Free | PEP, sanctions screening |
+| Google News | News | ∞ | Real-time monitoring |
+| GNews API | News | 100/day | 60K+ sources |
+| Guardian API | News | 5,000/day | Full article text |
+| Hunter.io | Email | 25/mo free | Email finder and verification |
 
-## AI Agent Integration
-
-```bash
-# Get tool definitions
-curl http://localhost:5000/api/v1/agent/tools?format=openai \
-  -H "X-API-Key: ciq_..."
-
-# Execute any tool
-curl -X POST http://localhost:5000/api/v1/agent/tool \
-  -H "X-API-Key: ciq_..." \
-  -H "Content-Type: application/json" \
-  -d '{"tool_name": "search_contacts", "arguments": {"query": "CEO"}}'
-```
-
-Available tools: `search_contacts`, `get_contact`, `enrich_contact`, `get_alerts`, `monitor_contact`, `add_contact`, `contact_report`.
-
-## Tests
-
-```bash
-# Start server in background
-python3 server.py &
-
-# Run API tests (59 tests)
-python3 test_api.py
-
-# Run provider tests (11 providers)
-python3 test_providers.py
-```
-
-## Project Structure
-
-```
-├── server.py           # Flask API server (1,474 lines)
-├── providers.py        # 11 real data providers (1,088 lines)
-├── test_api.py         # Full API test suite (59 tests)
-├── test_providers.py   # Provider integration tests
-├── requirements.txt
-├── .env.example
-└── .gitignore
-```
-
-## License
-
-MIT
-
-## OSINT Intelligence (NEW!)
-
-Deep contact investigation using 5 specialized OSINT tools.
-
-### OSINT Providers
-
+### OSINT CLI Tools (5)
 | Tool | Purpose | Coverage | Speed |
 |------|---------|----------|-------|
 | **Sherlock** | Username → Social profiles | 300+ platforms | ~2 min |
-| **theHarvester** | Email → Related data | Multiple sources | ~1 min |
-| **holehe** | Email → Platform registrations | 120+ platforms | ~30 sec |
-| **subfinder** | Domain → Subdomains | Passive enum | ~30 sec |
-| **phoneinfoga** | Phone → Carrier/validation | Phone intelligence | ~30 sec |
+| **theHarvester** | Email → Related intelligence | Multiple sources | ~1 min |
+| **holehe** | Email → Platform registrations | 120+ services | ~30 sec |
+| **subfinder** | Domain → Subdomains | Passive enumeration | ~30 sec |
+| **phoneinfoga** | Phone → Carrier validation | Global coverage | ~30 sec |
 
-### OSINT Endpoints
+## 🎯 Target Markets
+
+### Primary Users
+- **Sales Professionals** - Lead enrichment and verification
+- **Recruiters** - Candidate research and contact discovery  
+- **Journalists** - Source verification and background checks
+- **Private Investigators** - Subject research and asset tracing
+- **OSINT Analysts** - Intelligence gathering and verification
+
+### Business Model
+- **Free Tier**: Basic contact enrichment (5 API sources)
+- **Pro ($4.99/mo)**: Full API access + basic OSINT tools
+- **Enterprise ($29.99/mo)**: Complete platform + priority support
+
+## 🏗️ Architecture
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│  React Native   │────│   Flask API      │────│   Data Sources  │
+│  Mobile App     │    │   (56 endpoints) │    │   (17 providers) │
+│                 │    │                  │    │                 │
+│ • 6 Screens     │    │ • Authentication │    │ • 12 APIs       │
+│ • Zustand Store│    │ • Contact Mgmt   │    │ • 5 OSINT Tools │
+│ • Expo Runtime │    │ • OSINT Engine   │    │ • Real-time     │
+│ • Dark UI       │    │ • Caller ID      │    │ • Privacy-first │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+```
+
+## 🔒 Privacy & Security
+
+- **Self-hosted architecture** - Full data control
+- **No third-party tracking** - Privacy-first design
+- **Encrypted storage** - SecureStore for sensitive data
+- **API rate limiting** - Abuse prevention
+- **Audit logging** - Complete activity tracking
+
+## 📈 Project Status
+
+### Completed ✅
+- [x] Backend API with 56 endpoints
+- [x] React Native mobile app (6 screens)
+- [x] 17 data source integrations
+- [x] Authentication system (JWT + API keys)
+- [x] OSINT investigation tools
+- [x] Caller ID with spam detection
+- [x] Digital QR business cards
+- [x] Real-time news monitoring
+- [x] Comprehensive test suite
+- [x] Documentation and investor brief
+
+### Roadmap 🚀
+- [ ] iOS/Android app store deployment
+- [ ] Advanced analytics dashboard
+- [ ] Team collaboration features
+- [ ] API marketplace for third-party integrations
+- [ ] AI-powered contact scoring
+- [ ] Blockchain identity verification
+
+## 🚀 Deployment
+
+### Development
+```bash
+# Backend
+cd backend && python server.py
+
+# Mobile (separate terminal)
+cd mobile && npx expo start
+```
+
+### Production
+```bash
+# Deploy to your server
+chmod +x scripts/deploy.sh
+./scripts/deploy.sh your-server-ip
+```
+
+See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed instructions.
+
+## 🧪 Testing
 
 ```bash
-# Email OSINT - Find related emails, platform registrations
-curl -X POST http://localhost:5000/api/v1/osint/email \
-  -H "X-API-Key: ciq_..." \
-  -d '{"email": "target@example.com"}'
+# Backend API tests (59 tests)
+cd backend && python test_api.py
 
-# Username search across 300+ social platforms
-curl -X POST http://localhost:5000/api/v1/osint/username \
-  -H "X-API-Key: ciq_..." \
-  -d '{"username": "johndoe"}'
+# Provider integration tests
+python test_providers.py
 
-# Phone number intelligence
-curl -X POST http://localhost:5000/api/v1/osint/phone \
-  -H "X-API-Key: ciq_..." \
-  -d '{"phone": "+1234567890"}'
-
-# Domain OSINT - WHOIS, DNS, subdomains
-curl -X POST http://localhost:5000/api/v1/osint/domain \
-  -H "X-API-Key: ciq_..." \
-  -d '{"domain": "example.com"}'
+# Mobile app testing
+cd mobile && npm test
 ```
 
-### AI OSINT Tools
+## 📚 Documentation
 
-```bash
-# Get OSINT tools
-curl http://localhost:5000/api/v1/agent/tools?format=openai \
-  -H "X-API-Key: ciq_..."
+- [API Documentation](docs/API.md) - Complete endpoint reference
+- [Investor Brief](docs/INVESTOR-BRIEF.md) - Business overview and projections
+- [Deployment Guide](docs/DEPLOYMENT.md) - Production setup instructions
 
-# Execute OSINT tool
-curl -X POST http://localhost:5000/api/v1/agent/tool \
-  -H "X-API-Key: ciq_..." \
-  -d '{
-    "tool_name": "osint_email",
-    "arguments": {"email": "target@example.com"}
-  }'
-```
+## 🤝 Contributing
 
-**Available OSINT tools:**
-- `osint_email` - Deep email investigation
-- `osint_username` - Social profile search
-- `osint_phone` - Phone validation & carrier
-- `osint_domain` - Domain & subdomain intel
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
 
-### OSINT CLI
+## 📄 License
 
-Direct OSINT from command line:
+This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
 
-```bash
-# Email OSINT
-./osint_contact.py email john@example.com
+## 🏢 Business Contact
 
-# Username search
-./osint_contact.py username johndoe
+**ContactIQ** - Comprehensive Contact Intelligence Platform
+- **Revenue Model**: Freemium (Free → Pro $4.99/mo → Enterprise $29.99/mo)
+- **Market Size**: $8.2B contact intelligence market
+- **Funding Stage**: Pre-seed ($150K-$300K target)
+- **Competitive Edge**: Only mobile-first, self-hosted solution combining contact enrichment + OSINT + caller ID
 
-# Phone OSINT
-./osint_contact.py phone +1234567890
+---
 
-# Domain OSINT
-./osint_contact.py domain example.com
-```
-
-Results saved to `/tmp/osint_<type>_<value>.json`
-
-### Combined Intelligence
-
-Use both standard providers + OSINT for maximum intel:
-
-```python
-# 1. Standard enrichment (GitHub, Wikidata, Gravatar, etc.)
-POST /api/v1/enrichment/enrich
-{
-  "contact_id": "123",
-  "providers": ["github", "wikidata", "gravatar"]
-}
-
-# 2. OSINT deep dive
-POST /api/v1/osint/email
-{"email": "contact@example.com"}
-
-POST /api/v1/osint/username
-{"username": "contact_username"}
-
-# Result: Comprehensive 360° profile
-```
-
-### Legal & Ethical OSINT
-
-**CRITICAL:** OSINT must be conducted legally and ethically.
-
-**Legal:**
-✅ Public information only  
-✅ No authentication bypass  
-✅ Respect Terms of Service  
-✅ No unauthorized access  
-
-**Illegal:**
-❌ Hacking or password cracking  
-❌ Bypassing security  
-❌ Harassment or stalking  
-❌ Violating platform ToS  
-
-See `references/legal.md` for full guidelines.
-
-### Total Data Sources
-
-**Standard Providers:** 11
-- GitHub, Wikidata, Gravatar, Mailcheck, Clearbit Logo
-- OpenCorporates, SEC EDGAR, OpenSanctions
-- Google News, GNews, Guardian
-
-**OSINT Tools:** 5
-- Sherlock, theHarvester, holehe, subfinder, phoneinfoga
-
-**Total:** 16 intelligence sources
-
+**Built with ❤️ for privacy-conscious professionals who need comprehensive contact intelligence.**

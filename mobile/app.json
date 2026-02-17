@@ -1,0 +1,104 @@
+{
+  "expo": {
+    "name": "ContactIQ",
+    "slug": "contactiq-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0A0A0F",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0F"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.contactiq.mobile",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "ContactIQ uses the camera to scan QR codes and capture contact information.",
+        "NSContactsUsageDescription": "ContactIQ can access your contacts to enrich them with intelligence data.",
+        "NSMicrophoneUsageDescription": "ContactIQ may use microphone for call recording features (optional).",
+        "NSLocationWhenInUseUsageDescription": "ContactIQ uses location to provide localized caller ID information.",
+        "NSFaceIDUsageDescription": "ContactIQ uses Face ID to secure your intelligence data.",
+        "CFBundleAllowMixedLocalizations": true
+      },
+      "capabilities": [
+        "ICloudDocuments"
+      ]
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0A0F"
+      },
+      "package": "com.contactiq.mobile",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.READ_PHONE_STATE",
+        "android.permission.CALL_PHONE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font",
+      "expo-camera",
+      "expo-barcode-scanner",
+      "expo-contacts",
+      "expo-local-authentication",
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share contact QR codes.",
+          "cameraPermission": "The app accesses your camera to scan QR codes and capture contact photos."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#00FF88",
+          "sounds": [
+            "./assets/sounds/notification.wav",
+            "./assets/sounds/alert.wav"
+          ]
+        }
+      ]
+    ],
+    "scheme": "contactiq",
+    "extra": {
+      "eas": {
+        "projectId": "contactiq-mobile-2024"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/contactiq-mobile-2024"
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "jsEngine": "hermes"
+  }
+}
