@@ -6,7 +6,6 @@
 
 ### Backend Setup
 ```bash
-cd backend
 pip install -r requirements.txt
 cp .env.example .env
 python server.py
@@ -141,8 +140,8 @@ Flask API server with **56 endpoints** across 7 modules:
 
 ### Development
 ```bash
-# Backend
-cd backend && python server.py
+# Backend (repo root)
+python server.py
 
 # Mobile (separate terminal)
 cd mobile && npx expo start
@@ -151,8 +150,8 @@ cd mobile && npx expo start
 ### Production
 ```bash
 # Deploy to your server
-chmod +x scripts/deploy.sh
-./scripts/deploy.sh your-server-ip
+chmod +x deploy.sh
+./deploy.sh your-server-ip
 ```
 
 See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed instructions.
@@ -160,11 +159,14 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed instructions.
 ## 🧪 Testing
 
 ```bash
-# Backend API tests (59 tests)
-cd backend && python test_api.py
+# Backend API tests
+python test_api.py
 
 # Provider integration tests
 python test_providers.py
+
+# LinkedIn provider tests
+python test_linkedin.py
 
 # Mobile app testing
 cd mobile && npm test
@@ -173,6 +175,7 @@ cd mobile && npm test
 ## 📚 Documentation
 
 - [API Documentation](docs/API.md) - Complete endpoint reference
+- [Alternative Architecture](docs/ALTERNATIVE-ARCHITECTURE.md) - Conservative vs aggressive migration options
 - [Investor Brief](docs/INVESTOR-BRIEF.md) - Business overview and projections
 - [Deployment Guide](docs/DEPLOYMENT.md) - Production setup instructions
 
