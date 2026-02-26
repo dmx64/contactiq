@@ -48,9 +48,20 @@ Extract provider domains into independent services:
 Adopt **Option A** immediately, while designing interfaces that can later become Option B services.
 
 ## Vertical Slice for Next Iteration
-1. Add provider adapter interface + fallback chain for enrichment APIs
+1. ✅ Add provider adapter interface + fallback chain for enrichment APIs (`provider_adapters.py`)
 2. Move OSINT CLI execution to background queue worker with job status endpoint
 3. Add structured request tracing (request id + provider latency logs)
+
+### Implemented Scaffold (2026-02-25)
+- Added `provider_adapters.py` with:
+  - `ProviderAdapter` contract
+  - `ProviderFallbackChain` orchestration
+  - per-attempt telemetry (provider/status/latency/error/fallback)
+  - first chain `person_enrichment`: GitHub → Wikidata fallback
+- Added unit tests: `test_provider_adapters.py`
+- Notes:
+  - This is intentionally additive and non-breaking.
+  - Existing pipeline remains default until route-level integration is enabled.
 
 ## Migration Phases
 1. Baseline metrics (latency/error per endpoint/provider)
