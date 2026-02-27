@@ -63,6 +63,14 @@ Adopt **Option A** immediately, while designing interfaces that can later become
   - This is intentionally additive and non-breaking.
   - Existing pipeline remains default until route-level integration is enabled.
 
+### Route Integration (2026-02-26)
+- Added feature-flagged endpoint `POST /api/v1/enrichment/person` in `server.py`.
+- Added `enrichment_router.py` to isolate rollout logic:
+  - default mode: `legacy_pipeline`
+  - adapter mode when `CONTACTIQ_ENABLE_ADAPTER_CHAIN=true`
+  - request-level override via `force_adapter_chain` (true/false)
+- Added tests: `test_enrichment_router.py`
+
 ## Migration Phases
 1. Baseline metrics (latency/error per endpoint/provider)
 2. Extract enrichment module behind adapter contract

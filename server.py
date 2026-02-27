@@ -21,8 +21,9 @@ from functools import wraps
 import threading
 import subprocess
 import requests
-from providers import ContactProviders
+from providers import ContactProviders, EnrichmentPipeline
 from osint_contact import OSINTEngine
+from enrichment_router import enrich_person as route_enrich_person, adapter_chain_enabled
 
 # Flask App Configuration
 app = Flask(__name__)
@@ -46,6 +47,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize providers and OSINT
+enrichment_pipeline = EnrichmentPipeline()
 providers = ContactProviders()
 osint_engine = OSINTEngine()
 
@@ -566,6 +568,66 @@ def get_contact(contact_id):
         'source': contact[6],
         'created_at': contact[7],
         'updated_at': contact[8]
+    })
+
+# =============================================================================
+# ENRICHMENT ENDPOINTS (feature-flagged adapter chain rollout)
+# =============================================================================
+
+@app.route('/api/v1/enrichment/person', methods=['POST'])
+@api_key_required
+def enrich_person_contact():
+    """
+    Enrich a person profile using either:
+    - legacy pipeline (default)
+    - provider adapter fallback chain (when feature flag is enabled)
+
+    Feature flag:
+      CONTACTIQ_ENABLE_ADAPTER_CHAIN=true
+
+    Request override:
+      {"force_adapter_chain": true|false}
+    """
+    data = request.get_json() or {}
+    full_name = data.get('full_name') or data.get('name')
+    email = data.get('email')
+
+    if not full_name and not email:
+        return jsonify({'error': 'full_name or email is required'}), 400
+
+    force_raw = data.get('force_adapter_chain')
+    force_adapter_chain = None
+    if isinstance(force_raw, bool):
+        force_adapter_chain = force_raw
+    elif isinstance(force_raw, str):
+        lowered = force_raw.strip().lower()
+        if lowered in {'true', '1', 'yes', 'on'}:
+            force_adapter_chain = True
+        elif lowered in {'false', '0', 'no', 'off'}:
+            force_adapter_chain = False
+
+    contact = {
+        'full_name': full_name,
+        'email': email,
+        'company': data.get('company'),
+    }
+
+    enrichment = route_enrich_person(
+        contact,
+        force_adapter_chain=force_adapter_chain,
+        pipeline=enrichment_pipeline,
+    )
+
+    log_api_usage(request.user_id, 'enrichment/person', provider=enrichment['mode'])
+
+    return jsonify({
+        'status': 'completed',
+        'mode': enrichment['mode'],
+        'feature_flags': {
+            'CONTACTIQ_ENABLE_ADAPTER_CHAIN': adapter_chain_enabled(),
+            'force_adapter_chain': force_adapter_chain,
+        },
+        'result': enrichment['result'],
     })
 
 # ... continuing with remaining 44 endpoints ...
