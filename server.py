@@ -24,6 +24,7 @@ import requests
 from providers import ContactProviders, EnrichmentPipeline
 from osint_contact import OSINTEngine
 from enrichment_router import enrich_person as route_enrich_person, adapter_chain_enabled
+from enrichment_telemetry import build_provider_latency_summary, build_telemetry_row
 
 # Flask App Configuration
 app = Flask(__name__)
@@ -162,6 +163,28 @@ def init_database():
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
     ''')
+
+    # Adapter-chain telemetry tracking (rollout visibility)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS enrichment_telemetry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            request_id TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            chain TEXT,
+            status TEXT,
+            selected_provider TEXT,
+            fallback_used BOOLEAN DEFAULT FALSE,
+            attempt_count INTEGER DEFAULT 0,
+            total_latency_ms REAL DEFAULT 0,
+            error TEXT,
+            attempts_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_enrichment_telemetry_request ON enrichment_telemetry(request_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_enrichment_telemetry_created ON enrichment_telemetry(created_at)')
     
     conn.commit()
     conn.close()
@@ -208,6 +231,49 @@ def log_api_usage(user_id, endpoint, provider=None, tokens=0):
     ''', (user_id, endpoint, provider, tokens))
     conn.commit()
     conn.close()
+
+
+def persist_enrichment_telemetry(row):
+    """Persist adapter-chain telemetry without breaking request flow on DB errors."""
+    if not row:
+        return False
+
+    try:
+        conn = sqlite3.connect('contactiq.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO enrichment_telemetry (
+                user_id,
+                request_id,
+                mode,
+                chain,
+                status,
+                selected_provider,
+                fallback_used,
+                attempt_count,
+                total_latency_ms,
+                error,
+                attempts_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            row.get('user_id'),
+            row.get('request_id'),
+            row.get('mode'),
+            row.get('chain'),
+            row.get('status'),
+            row.get('selected_provider'),
+            row.get('fallback_used'),
+            row.get('attempt_count'),
+            row.get('total_latency_ms'),
+            row.get('error'),
+            row.get('attempts_json'),
+        ))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as exc:
+        logger.warning('Failed to persist enrichment telemetry: %s', exc)
+        return False
 
 # =============================================================================
 # AUTHENTICATION ENDPOINTS (8 endpoints)
@@ -588,6 +654,7 @@ def enrich_person_contact():
     Request override:
       {"force_adapter_chain": true|false}
     """
+    request_id = f"enr_{uuid.uuid4().hex[:12]}"
     data = request.get_json() or {}
     full_name = data.get('full_name') or data.get('name')
     email = data.get('email')
@@ -618,17 +685,56 @@ def enrich_person_contact():
         pipeline=enrichment_pipeline,
     )
 
-    log_api_usage(request.user_id, 'enrichment/person', provider=enrichment['mode'])
+    mode = enrichment['mode']
+    result = enrichment['result']
 
-    return jsonify({
+    telemetry_summary = None
+    telemetry_persisted = False
+
+    telemetry_row = build_telemetry_row(
+        user_id=request.user_id,
+        request_id=request_id,
+        mode=mode,
+        result=result,
+    )
+    if telemetry_row:
+        telemetry_summary = build_provider_latency_summary(result)
+        telemetry_persisted = persist_enrichment_telemetry(telemetry_row)
+
+    logger.info(
+        'enrichment_person_completed request_id=%s mode=%s selected_provider=%s',
+        request_id,
+        mode,
+        result.get('selected_provider') if isinstance(result, dict) else None,
+    )
+
+    log_api_usage(request.user_id, 'enrichment/person', provider=mode)
+
+    payload = {
         'status': 'completed',
-        'mode': enrichment['mode'],
+        'request_id': request_id,
+        'mode': mode,
         'feature_flags': {
             'CONTACTIQ_ENABLE_ADAPTER_CHAIN': adapter_chain_enabled(),
             'force_adapter_chain': force_adapter_chain,
         },
-        'result': enrichment['result'],
-    })
+        'result': result,
+    }
+
+    if telemetry_summary is not None:
+        payload['telemetry'] = {
+            'persisted': telemetry_persisted,
+            'chain': telemetry_summary.get('chain'),
+            'status': telemetry_summary.get('status'),
+            'selected_provider': telemetry_summary.get('selected_provider'),
+            'fallback_used': telemetry_summary.get('fallback_used'),
+            'attempt_count': telemetry_summary.get('attempt_count'),
+            'failed_attempt_count': telemetry_summary.get('failed_attempt_count'),
+            'total_latency_ms': telemetry_summary.get('total_latency_ms'),
+            'provider_path': telemetry_summary.get('provider_path'),
+        }
+
+    return jsonify(payload)
 
 # ... continuing with remaining 44 endpoints ...
 # [Due to length limits, I'll create the full file in parts]

@@ -50,7 +50,7 @@ Adopt **Option A** immediately, while designing interfaces that can later become
 ## Vertical Slice for Next Iteration
 1. ✅ Add provider adapter interface + fallback chain for enrichment APIs (`provider_adapters.py`)
 2. Move OSINT CLI execution to background queue worker with job status endpoint
-3. Add structured request tracing (request id + provider latency logs)
+3. ✅ Add structured request tracing (request id + provider latency logs)
 
 ### Implemented Scaffold (2026-02-25)
 - Added `provider_adapters.py` with:
@@ -70,6 +70,16 @@ Adopt **Option A** immediately, while designing interfaces that can later become
   - adapter mode when `CONTACTIQ_ENABLE_ADAPTER_CHAIN=true`
   - request-level override via `force_adapter_chain` (true/false)
 - Added tests: `test_enrichment_router.py`
+
+### Tracing + Telemetry Persistence (2026-02-27)
+- Endpoint now emits `request_id` for every `/api/v1/enrichment/person` request.
+- Adapter-chain mode response includes telemetry summary:
+  - attempt count
+  - failed attempt count
+  - total provider latency
+  - provider path and selected provider
+- Added persistence table `enrichment_telemetry` in SQLite with request-level chain telemetry.
+- Added unit tests for telemetry helpers: `test_enrichment_telemetry.py`.
 
 ## Migration Phases
 1. Baseline metrics (latency/error per endpoint/provider)
