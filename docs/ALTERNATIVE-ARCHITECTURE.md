@@ -81,6 +81,17 @@ Adopt **Option A** immediately, while designing interfaces that can later become
 - Added persistence table `enrichment_telemetry` in SQLite with request-level chain telemetry.
 - Added unit tests for telemetry helpers: `test_enrichment_telemetry.py`.
 
+### Telemetry Read Endpoint (2026-02-28)
+- Added `GET /api/v1/enrichment/telemetry` (API-key protected).
+- Supports filters:
+  - `since_hours` (default 24, max 336)
+  - `limit` (default 20, max 100)
+  - `chain` (optional)
+- Returns:
+  - windowed overview (total requests, fallback rate, success rate, avg attempts, avg latency)
+  - top selected providers
+  - recent request-level telemetry entries
+
 ## Migration Phases
 1. Baseline metrics (latency/error per endpoint/provider)
 2. Extract enrichment module behind adapter contract

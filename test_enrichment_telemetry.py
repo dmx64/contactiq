@@ -1,7 +1,11 @@
 import json
 import unittest
 
-from enrichment_telemetry import build_provider_latency_summary, build_telemetry_row
+from enrichment_telemetry import (
+    build_provider_latency_summary,
+    build_telemetry_overview,
+    build_telemetry_row,
+)
 
 
 class EnrichmentTelemetryTests(unittest.TestCase):
@@ -57,6 +61,36 @@ class EnrichmentTelemetryTests(unittest.TestCase):
         attempts = json.loads(row["attempts_json"])
         self.assertEqual(len(attempts), 2)
         self.assertEqual(row["status"], "failed")
+
+    def test_overview_computes_rates(self):
+        overview = build_telemetry_overview(
+            total_requests=10,
+            fallback_requests=4,
+            successful_requests=9,
+            avg_attempt_count=1.7,
+            avg_latency_ms=142.456,
+            top_providers=[{"provider": "wikidata", "request_count": 6}],
+        )
+
+        self.assertEqual(overview["total_requests"], 10)
+        self.assertEqual(overview["fallback_rate_pct"], 40.0)
+        self.assertEqual(overview["success_rate_pct"], 90.0)
+        self.assertEqual(overview["avg_attempt_count"], 1.7)
+        self.assertEqual(overview["avg_latency_ms"], 142.46)
+        self.assertEqual(overview["top_providers"][0]["provider"], "wikidata")
+
+    def test_overview_handles_zero_requests(self):
+        overview = build_telemetry_overview(
+            total_requests=0,
+            fallback_requests=0,
+            successful_requests=0,
+            avg_attempt_count=0,
+            avg_latency_ms=0,
+            top_providers=[],
+        )
+
+        self.assertEqual(overview["fallback_rate_pct"], 0.0)
+        self.assertEqual(overview["success_rate_pct"], 0.0)
 
 
 if __name__ == "__main__":

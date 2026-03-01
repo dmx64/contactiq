@@ -77,3 +77,31 @@ def build_telemetry_row(
         "error": summary.get("error"),
         "attempts_json": json.dumps(summary.get("attempts", []), ensure_ascii=False),
     }
+
+
+def build_telemetry_overview(
+    *,
+    total_requests: int,
+    fallback_requests: int,
+    successful_requests: int,
+    avg_attempt_count: float,
+    avg_latency_ms: float,
+    top_providers: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    total = max(int(total_requests or 0), 0)
+    fallback_total = max(int(fallback_requests or 0), 0)
+    successful_total = max(int(successful_requests or 0), 0)
+
+    fallback_rate = round((fallback_total / total) * 100, 2) if total else 0.0
+    success_rate = round((successful_total / total) * 100, 2) if total else 0.0
+
+    return {
+        "total_requests": total,
+        "fallback_requests": fallback_total,
+        "successful_requests": successful_total,
+        "fallback_rate_pct": fallback_rate,
+        "success_rate_pct": success_rate,
+        "avg_attempt_count": round(float(avg_attempt_count or 0.0), 2),
+        "avg_latency_ms": round(float(avg_latency_ms or 0.0), 2),
+        "top_providers": top_providers,
+    }

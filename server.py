@@ -24,7 +24,11 @@ import requests
 from providers import ContactProviders, EnrichmentPipeline
 from osint_contact import OSINTEngine
 from enrichment_router import enrich_person as route_enrich_person, adapter_chain_enabled
-from enrichment_telemetry import build_provider_latency_summary, build_telemetry_row
+from enrichment_telemetry import (
+    build_provider_latency_summary,
+    build_telemetry_overview,
+    build_telemetry_row,
+)
 
 # Flask App Configuration
 app = Flask(__name__)
@@ -735,6 +739,129 @@ def enrich_person_contact():
         }
 
     return jsonify(payload)
+
+
+@app.route('/api/v1/enrichment/telemetry', methods=['GET'])
+@api_key_required
+def get_enrichment_telemetry():
+    """Read adapter-chain telemetry rollup and recent request entries."""
+    limit_raw = request.args.get('limit', '20')
+    since_hours_raw = request.args.get('since_hours', '24')
+    chain = (request.args.get('chain') or '').strip() or None
+
+    try:
+        limit = max(1, min(int(limit_raw), 100))
+    except ValueError:
+        return jsonify({'error': 'limit must be an integer'}), 400
+
+    try:
+        since_hours = max(1, min(int(since_hours_raw), 24 * 14))
+    except ValueError:
+        return jsonify({'error': 'since_hours must be an integer'}), 400
+
+    where_clauses = ["user_id = ?", "mode = 'adapter_chain'", "created_at >= datetime('now', ?)"]
+    params = [request.user_id, f'-{since_hours} hours']
+
+    if chain:
+        where_clauses.append('chain = ?')
+        params.append(chain)
+
+    where_sql = ' AND '.join(where_clauses)
+
+    try:
+        conn = sqlite3.connect('contactiq.db')
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute(f'''
+            SELECT
+                COUNT(*) AS total_requests,
+                SUM(CASE WHEN fallback_used = 1 THEN 1 ELSE 0 END) AS fallback_requests,
+                SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('success', 'partial', 'mock') THEN 1 ELSE 0 END) AS successful_requests,
+                AVG(attempt_count) AS avg_attempt_count,
+                AVG(total_latency_ms) AS avg_latency_ms
+            FROM enrichment_telemetry
+            WHERE {where_sql}
+        ''', params)
+        aggregate = cursor.fetchone() or {}
+
+        cursor.execute(f'''
+            SELECT selected_provider, COUNT(*) AS request_count
+            FROM enrichment_telemetry
+            WHERE {where_sql}
+              AND selected_provider IS NOT NULL
+              AND selected_provider != ''
+            GROUP BY selected_provider
+            ORDER BY request_count DESC
+            LIMIT 5
+        ''', params)
+        top_providers = [
+            {
+                'provider': row['selected_provider'],
+                'request_count': int(row['request_count'] or 0),
+            }
+            for row in cursor.fetchall()
+        ]
+
+        cursor.execute(f'''
+            SELECT
+                request_id,
+                chain,
+                status,
+                selected_provider,
+                fallback_used,
+                attempt_count,
+                total_latency_ms,
+                error,
+                created_at
+            FROM enrichment_telemetry
+            WHERE {where_sql}
+            ORDER BY created_at DESC
+            LIMIT ?
+        ''', [*params, limit])
+        recent_rows = cursor.fetchall()
+
+        conn.close()
+    except Exception as exc:
+        logger.warning('Failed to read enrichment telemetry: %s', exc)
+        return jsonify({'error': 'Failed to read telemetry'}), 500
+
+    overview = build_telemetry_overview(
+        total_requests=aggregate['total_requests'] if aggregate else 0,
+        fallback_requests=aggregate['fallback_requests'] if aggregate else 0,
+        successful_requests=aggregate['successful_requests'] if aggregate else 0,
+        avg_attempt_count=aggregate['avg_attempt_count'] if aggregate else 0.0,
+        avg_latency_ms=aggregate['avg_latency_ms'] if aggregate else 0.0,
+        top_providers=top_providers,
+    )
+
+    recent = [
+        {
+            'request_id': row['request_id'],
+            'chain': row['chain'],
+            'status': row['status'],
+            'selected_provider': row['selected_provider'],
+            'fallback_used': bool(row['fallback_used']),
+            'attempt_count': int(row['attempt_count'] or 0),
+            'total_latency_ms': round(float(row['total_latency_ms'] or 0.0), 2),
+            'error': row['error'],
+            'created_at': row['created_at'],
+        }
+        for row in recent_rows
+    ]
+
+    log_api_usage(request.user_id, 'enrichment/telemetry', provider='adapter_chain')
+
+    return jsonify({
+        'status': 'ok',
+        'window': {
+            'since_hours': since_hours,
+            'chain': chain,
+            'limit': limit,
+        },
+        'overview': overview,
+        'recent': recent,
+    })
 
 # ... continuing with remaining 44 endpoints ...
 # [Due to length limits, I'll create the full file in parts]
