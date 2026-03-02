@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
@@ -19,6 +20,54 @@ def _safe_latency(value: Any) -> float:
         return parsed
     except (TypeError, ValueError):
         return 0.0
+
+
+def _safe_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
+def _parse_hour_bucket(value: Any) -> Optional[str]:
+    if not value:
+        return None
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+
+    normalized = raw.replace("Z", "+00:00")
+    parsed: Optional[datetime] = None
+
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        for fmt in (
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M:%S.%f",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S.%f",
+        ):
+            try:
+                parsed = datetime.strptime(raw, fmt)
+                break
+            except ValueError:
+                continue
+
+    if parsed is None:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+
+    hour = parsed.replace(minute=0, second=0, microsecond=0)
+    return hour.isoformat().replace("+00:00", "Z")
 
 
 def extract_attempts(result: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -75,6 +124,66 @@ def build_provider_error_breakdown(
         {"provider": provider, "error_count": int(count)}
         for provider, count in errors.most_common(max(1, int(top_n or 5)))
     ]
+
+
+def build_hourly_trends(rows: List[Dict[str, Any]], *, max_points: int = 168) -> List[Dict[str, Any]]:
+    buckets: Dict[str, Dict[str, Any]] = {}
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        hour = _parse_hour_bucket(row.get("created_at"))
+        if not hour:
+            continue
+
+        entry = buckets.setdefault(
+            hour,
+            {
+                "total_requests": 0,
+                "fallback_requests": 0,
+                "error_requests": 0,
+                "latencies": [],
+            },
+        )
+
+        entry["total_requests"] += 1
+        if _safe_bool(row.get("fallback_used")):
+            entry["fallback_requests"] += 1
+
+        status = str(row.get("status") or "").strip().lower()
+        if status not in {"success", "partial", "mock"}:
+            entry["error_requests"] += 1
+
+        latency = _safe_latency(row.get("total_latency_ms"))
+        if latency > 0:
+            entry["latencies"].append(latency)
+
+    ordered_hours = sorted(buckets.keys())
+    if max_points > 0 and len(ordered_hours) > max_points:
+        ordered_hours = ordered_hours[-max_points:]
+
+    trends: List[Dict[str, Any]] = []
+    for hour in ordered_hours:
+        entry = buckets[hour]
+        total_requests = int(entry["total_requests"])
+        fallback_requests = int(entry["fallback_requests"])
+        error_requests = int(entry["error_requests"])
+
+        fallback_rate = round((fallback_requests / total_requests) * 100, 2) if total_requests else 0.0
+        error_rate = round((error_requests / total_requests) * 100, 2) if total_requests else 0.0
+
+        trends.append(
+            {
+                "hour": hour,
+                "total_requests": total_requests,
+                "fallback_rate_pct": fallback_rate,
+                "error_rate_pct": error_rate,
+                "latency_p95_ms": compute_latency_p95_ms(entry["latencies"]),
+            }
+        )
+
+    return trends
 
 
 def build_provider_latency_summary(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -134,6 +243,7 @@ def build_telemetry_overview(
     latency_p95_ms: float,
     top_providers: List[Dict[str, Any]],
     provider_error_breakdown: List[Dict[str, Any]],
+    hourly_trends: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     total = max(int(total_requests or 0), 0)
     fallback_total = max(int(fallback_requests or 0), 0)
@@ -153,4 +263,5 @@ def build_telemetry_overview(
         "latency_p95_ms": round(float(latency_p95_ms or 0.0), 2),
         "top_providers": top_providers,
         "provider_error_breakdown": provider_error_breakdown,
+        "hourly_trends": hourly_trends or [],
     }

@@ -25,6 +25,7 @@ from providers import ContactProviders, EnrichmentPipeline
 from osint_contact import OSINTEngine
 from enrichment_router import enrich_person as route_enrich_person, adapter_chain_enabled
 from enrichment_telemetry import (
+    build_hourly_trends,
     build_provider_latency_summary,
     build_provider_error_breakdown,
     build_telemetry_overview,
@@ -823,6 +824,15 @@ def get_enrichment_telemetry():
         attempts_payloads = [row['attempts_json'] for row in cursor.fetchall()]
 
         cursor.execute(f'''
+            SELECT created_at, status, fallback_used, total_latency_ms
+            FROM enrichment_telemetry
+            WHERE {where_sql}
+              AND created_at IS NOT NULL
+            ORDER BY created_at ASC
+        ''', params)
+        trend_rows = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute(f'''
             SELECT
                 request_id,
                 chain,
@@ -854,6 +864,7 @@ def get_enrichment_telemetry():
         latency_p95_ms=compute_latency_p95_ms(latency_values),
         top_providers=top_providers,
         provider_error_breakdown=build_provider_error_breakdown(attempts_payloads, top_n=5),
+        hourly_trends=build_hourly_trends(trend_rows, max_points=min(max(since_hours, 1), 168)),
     )
 
     recent = [

@@ -99,6 +99,15 @@ Adopt **Option A** immediately, while designing interfaces that can later become
   - percentile calculation
   - provider error breakdown parsing/counting
 
+### Hourly Trend Slice (2026-03-01, late)
+- Extended `GET /api/v1/enrichment/telemetry` overview with `hourly_trends`.
+- `hourly_trends` includes per-hour:
+  - `total_requests`
+  - `fallback_rate_pct`
+  - `error_rate_pct`
+  - `latency_p95_ms`
+- Added helper `build_hourly_trends` + unit coverage for mixed timestamp formats and fallback/error math.
+
 ## Migration Phases
 1. Baseline metrics (latency/error per endpoint/provider)
 2. Extract enrichment module behind adapter contract

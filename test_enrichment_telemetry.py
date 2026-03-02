@@ -2,6 +2,7 @@ import json
 import unittest
 
 from enrichment_telemetry import (
+    build_hourly_trends,
     build_provider_error_breakdown,
     build_provider_latency_summary,
     build_telemetry_overview,
@@ -84,6 +85,7 @@ class EnrichmentTelemetryTests(unittest.TestCase):
         self.assertEqual(overview["latency_p95_ms"], 300.5)
         self.assertEqual(overview["top_providers"][0]["provider"], "wikidata")
         self.assertEqual(overview["provider_error_breakdown"][0]["provider"], "github")
+        self.assertEqual(overview["hourly_trends"], [])
 
     def test_overview_handles_zero_requests(self):
         overview = build_telemetry_overview(
@@ -118,6 +120,50 @@ class EnrichmentTelemetryTests(unittest.TestCase):
 
         self.assertEqual(breakdown[0]["provider"], "github")
         self.assertEqual(breakdown[0]["error_count"], 2)
+
+    def test_hourly_trends_aggregates_fallback_error_and_p95(self):
+        trends = build_hourly_trends([
+            {
+                "created_at": "2026-03-02 06:10:00",
+                "status": "success",
+                "fallback_used": 0,
+                "total_latency_ms": 120,
+            },
+            {
+                "created_at": "2026-03-02 06:40:00",
+                "status": "failed",
+                "fallback_used": 1,
+                "total_latency_ms": 300,
+            },
+            {
+                "created_at": "2026-03-02 07:15:00",
+                "status": "partial",
+                "fallback_used": 1,
+                "total_latency_ms": 80,
+            },
+            {
+                "created_at": "2026-03-02T07:35:00Z",
+                "status": "error",
+                "fallback_used": "true",
+                "total_latency_ms": 200,
+            },
+        ])
+
+        self.assertEqual(len(trends), 2)
+
+        first = trends[0]
+        self.assertEqual(first["hour"], "2026-03-02T06:00:00Z")
+        self.assertEqual(first["total_requests"], 2)
+        self.assertEqual(first["fallback_rate_pct"], 50.0)
+        self.assertEqual(first["error_rate_pct"], 50.0)
+        self.assertEqual(first["latency_p95_ms"], 300.0)
+
+        second = trends[1]
+        self.assertEqual(second["hour"], "2026-03-02T07:00:00Z")
+        self.assertEqual(second["total_requests"], 2)
+        self.assertEqual(second["fallback_rate_pct"], 100.0)
+        self.assertEqual(second["error_rate_pct"], 50.0)
+        self.assertEqual(second["latency_p95_ms"], 200.0)
 
 
 if __name__ == "__main__":
