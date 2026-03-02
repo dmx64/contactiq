@@ -2,9 +2,11 @@ import json
 import unittest
 
 from enrichment_telemetry import (
+    build_provider_error_breakdown,
     build_provider_latency_summary,
     build_telemetry_overview,
     build_telemetry_row,
+    compute_latency_p95_ms,
 )
 
 
@@ -69,7 +71,9 @@ class EnrichmentTelemetryTests(unittest.TestCase):
             successful_requests=9,
             avg_attempt_count=1.7,
             avg_latency_ms=142.456,
+            latency_p95_ms=300.5,
             top_providers=[{"provider": "wikidata", "request_count": 6}],
+            provider_error_breakdown=[{"provider": "github", "error_count": 3}],
         )
 
         self.assertEqual(overview["total_requests"], 10)
@@ -77,7 +81,9 @@ class EnrichmentTelemetryTests(unittest.TestCase):
         self.assertEqual(overview["success_rate_pct"], 90.0)
         self.assertEqual(overview["avg_attempt_count"], 1.7)
         self.assertEqual(overview["avg_latency_ms"], 142.46)
+        self.assertEqual(overview["latency_p95_ms"], 300.5)
         self.assertEqual(overview["top_providers"][0]["provider"], "wikidata")
+        self.assertEqual(overview["provider_error_breakdown"][0]["provider"], "github")
 
     def test_overview_handles_zero_requests(self):
         overview = build_telemetry_overview(
@@ -86,11 +92,32 @@ class EnrichmentTelemetryTests(unittest.TestCase):
             successful_requests=0,
             avg_attempt_count=0,
             avg_latency_ms=0,
+            latency_p95_ms=0,
             top_providers=[],
+            provider_error_breakdown=[],
         )
 
         self.assertEqual(overview["fallback_rate_pct"], 0.0)
         self.assertEqual(overview["success_rate_pct"], 0.0)
+
+    def test_latency_p95(self):
+        self.assertEqual(compute_latency_p95_ms([5, 10, 20, 100, 200]), 200.0)
+        self.assertEqual(compute_latency_p95_ms([]), 0.0)
+
+    def test_provider_error_breakdown(self):
+        breakdown = build_provider_error_breakdown([
+            json.dumps([
+                {"provider": "github", "status": "error"},
+                {"provider": "wikidata", "status": "success"},
+            ]),
+            [
+                {"provider": "github", "status": "timeout"},
+                {"provider": "google", "status": "error"},
+            ],
+        ])
+
+        self.assertEqual(breakdown[0]["provider"], "github")
+        self.assertEqual(breakdown[0]["error_count"], 2)
 
 
 if __name__ == "__main__":

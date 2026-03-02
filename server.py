@@ -26,8 +26,10 @@ from osint_contact import OSINTEngine
 from enrichment_router import enrich_person as route_enrich_person, adapter_chain_enabled
 from enrichment_telemetry import (
     build_provider_latency_summary,
+    build_provider_error_breakdown,
     build_telemetry_overview,
     build_telemetry_row,
+    compute_latency_p95_ms,
 )
 
 # Flask App Configuration
@@ -804,6 +806,23 @@ def get_enrichment_telemetry():
         ]
 
         cursor.execute(f'''
+            SELECT total_latency_ms
+            FROM enrichment_telemetry
+            WHERE {where_sql}
+              AND total_latency_ms IS NOT NULL
+        ''', params)
+        latency_values = [float(row['total_latency_ms'] or 0.0) for row in cursor.fetchall()]
+
+        cursor.execute(f'''
+            SELECT attempts_json
+            FROM enrichment_telemetry
+            WHERE {where_sql}
+              AND attempts_json IS NOT NULL
+              AND attempts_json != ''
+        ''', params)
+        attempts_payloads = [row['attempts_json'] for row in cursor.fetchall()]
+
+        cursor.execute(f'''
             SELECT
                 request_id,
                 chain,
@@ -832,7 +851,9 @@ def get_enrichment_telemetry():
         successful_requests=aggregate['successful_requests'] if aggregate else 0,
         avg_attempt_count=aggregate['avg_attempt_count'] if aggregate else 0.0,
         avg_latency_ms=aggregate['avg_latency_ms'] if aggregate else 0.0,
+        latency_p95_ms=compute_latency_p95_ms(latency_values),
         top_providers=top_providers,
+        provider_error_breakdown=build_provider_error_breakdown(attempts_payloads, top_n=5),
     )
 
     recent = [

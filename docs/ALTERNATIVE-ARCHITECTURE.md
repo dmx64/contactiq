@@ -92,6 +92,13 @@ Adopt **Option A** immediately, while designing interfaces that can later become
   - top selected providers
   - recent request-level telemetry entries
 
+### Telemetry Rollout Metrics Upgrade (2026-03-01)
+- Added `latency_p95_ms` to overview for tail-latency monitoring.
+- Added `provider_error_breakdown` (top providers by failed adapter attempts).
+- Added helper coverage in `test_enrichment_telemetry.py`:
+  - percentile calculation
+  - provider error breakdown parsing/counting
+
 ## Migration Phases
 1. Baseline metrics (latency/error per endpoint/provider)
 2. Extract enrichment module behind adapter contract

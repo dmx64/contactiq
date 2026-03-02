@@ -7,6 +7,7 @@ logic can be unit-tested in isolation.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from typing import Any, Dict, List, Optional
 
 
@@ -30,6 +31,50 @@ def extract_attempts(result: Dict[str, Any]) -> List[Dict[str, Any]]:
         if isinstance(attempt, dict):
             normalized.append(attempt)
     return normalized
+
+
+def compute_latency_p95_ms(latencies: List[Any]) -> float:
+    values = sorted(_safe_latency(v) for v in latencies if _safe_latency(v) > 0)
+    if not values:
+        return 0.0
+
+    # nearest-rank percentile (95th)
+    idx = int(round(0.95 * (len(values) - 1)))
+    idx = min(max(idx, 0), len(values) - 1)
+    return round(float(values[idx]), 2)
+
+
+def build_provider_error_breakdown(
+    attempts_payloads: List[Any],
+    *,
+    top_n: int = 5,
+) -> List[Dict[str, Any]]:
+    errors = Counter()
+
+    for payload in attempts_payloads:
+        attempts: List[Dict[str, Any]] = []
+
+        if isinstance(payload, list):
+            attempts = [a for a in payload if isinstance(a, dict)]
+        elif isinstance(payload, str):
+            try:
+                parsed = json.loads(payload)
+                if isinstance(parsed, list):
+                    attempts = [a for a in parsed if isinstance(a, dict)]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                attempts = []
+
+        for attempt in attempts:
+            status = str(attempt.get("status", "")).lower()
+            if status in {"success", "partial", "mock"}:
+                continue
+            provider = str(attempt.get("provider") or "unknown").strip() or "unknown"
+            errors[provider] += 1
+
+    return [
+        {"provider": provider, "error_count": int(count)}
+        for provider, count in errors.most_common(max(1, int(top_n or 5)))
+    ]
 
 
 def build_provider_latency_summary(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -86,7 +131,9 @@ def build_telemetry_overview(
     successful_requests: int,
     avg_attempt_count: float,
     avg_latency_ms: float,
+    latency_p95_ms: float,
     top_providers: List[Dict[str, Any]],
+    provider_error_breakdown: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     total = max(int(total_requests or 0), 0)
     fallback_total = max(int(fallback_requests or 0), 0)
@@ -103,5 +150,7 @@ def build_telemetry_overview(
         "success_rate_pct": success_rate,
         "avg_attempt_count": round(float(avg_attempt_count or 0.0), 2),
         "avg_latency_ms": round(float(avg_latency_ms or 0.0), 2),
+        "latency_p95_ms": round(float(latency_p95_ms or 0.0), 2),
         "top_providers": top_providers,
+        "provider_error_breakdown": provider_error_breakdown,
     }
