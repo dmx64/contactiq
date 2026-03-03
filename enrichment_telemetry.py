@@ -186,6 +186,94 @@ def build_hourly_trends(rows: List[Dict[str, Any]], *, max_points: int = 168) ->
     return trends
 
 
+def build_hourly_trend_alerts(
+    trends: List[Dict[str, Any]],
+    *,
+    baseline_window: int = 6,
+    min_baseline_points: int = 3,
+    fallback_spike_delta_pct: float = 20.0,
+    error_spike_delta_pct: float = 15.0,
+    latency_regression_multiplier: float = 1.5,
+    latency_regression_delta_ms: float = 120.0,
+) -> List[Dict[str, Any]]:
+    """Detect simple anomaly alerts from hourly trend points.
+
+    Alerts are evaluated against a moving baseline window of prior points to
+    avoid noisy one-off comparisons.
+    """
+
+    if not trends:
+        return []
+
+    safe_window = max(1, int(baseline_window or 1))
+    safe_min_points = max(1, int(min_baseline_points or 1))
+
+    alerts: List[Dict[str, Any]] = []
+
+    for idx, point in enumerate(trends):
+        baseline = trends[max(0, idx - safe_window) : idx]
+        if len(baseline) < safe_min_points:
+            continue
+
+        baseline_fallback = [float(p.get("fallback_rate_pct") or 0.0) for p in baseline]
+        baseline_error = [float(p.get("error_rate_pct") or 0.0) for p in baseline]
+        baseline_latency = [float(p.get("latency_p95_ms") or 0.0) for p in baseline if float(p.get("latency_p95_ms") or 0.0) > 0]
+
+        fallback_avg = round(sum(baseline_fallback) / len(baseline_fallback), 2) if baseline_fallback else 0.0
+        error_avg = round(sum(baseline_error) / len(baseline_error), 2) if baseline_error else 0.0
+        latency_avg = round(sum(baseline_latency) / len(baseline_latency), 2) if baseline_latency else 0.0
+
+        current_fallback = float(point.get("fallback_rate_pct") or 0.0)
+        current_error = float(point.get("error_rate_pct") or 0.0)
+        current_latency = float(point.get("latency_p95_ms") or 0.0)
+
+        fallback_delta = round(current_fallback - fallback_avg, 2)
+        if fallback_delta >= fallback_spike_delta_pct:
+            alerts.append(
+                {
+                    "hour": point.get("hour"),
+                    "type": "fallback_spike",
+                    "severity": "warning" if fallback_delta < 35 else "critical",
+                    "current": round(current_fallback, 2),
+                    "baseline": fallback_avg,
+                    "delta": fallback_delta,
+                    "threshold": float(fallback_spike_delta_pct),
+                }
+            )
+
+        error_delta = round(current_error - error_avg, 2)
+        if error_delta >= error_spike_delta_pct:
+            alerts.append(
+                {
+                    "hour": point.get("hour"),
+                    "type": "error_spike",
+                    "severity": "warning" if error_delta < 30 else "critical",
+                    "current": round(current_error, 2),
+                    "baseline": error_avg,
+                    "delta": error_delta,
+                    "threshold": float(error_spike_delta_pct),
+                }
+            )
+
+        if latency_avg > 0 and current_latency > 0:
+            latency_delta = round(current_latency - latency_avg, 2)
+            regression_threshold = round(max(latency_avg * latency_regression_multiplier, latency_avg + latency_regression_delta_ms), 2)
+            if current_latency >= regression_threshold:
+                alerts.append(
+                    {
+                        "hour": point.get("hour"),
+                        "type": "latency_p95_regression",
+                        "severity": "warning" if latency_delta < 250 else "critical",
+                        "current": round(current_latency, 2),
+                        "baseline": latency_avg,
+                        "delta": latency_delta,
+                        "threshold": regression_threshold,
+                    }
+                )
+
+    return alerts
+
+
 def build_provider_latency_summary(result: Dict[str, Any]) -> Dict[str, Any]:
     attempts = extract_attempts(result)
     total_latency = sum(_safe_latency(a.get("latency_ms")) for a in attempts)
@@ -244,6 +332,7 @@ def build_telemetry_overview(
     top_providers: List[Dict[str, Any]],
     provider_error_breakdown: List[Dict[str, Any]],
     hourly_trends: Optional[List[Dict[str, Any]]] = None,
+    trend_alerts: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     total = max(int(total_requests or 0), 0)
     fallback_total = max(int(fallback_requests or 0), 0)
@@ -264,4 +353,5 @@ def build_telemetry_overview(
         "top_providers": top_providers,
         "provider_error_breakdown": provider_error_breakdown,
         "hourly_trends": hourly_trends or [],
+        "trend_alerts": trend_alerts or [],
     }

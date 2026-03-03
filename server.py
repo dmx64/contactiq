@@ -25,6 +25,7 @@ from providers import ContactProviders, EnrichmentPipeline
 from osint_contact import OSINTEngine
 from enrichment_router import enrich_person as route_enrich_person, adapter_chain_enabled
 from enrichment_telemetry import (
+    build_hourly_trend_alerts,
     build_hourly_trends,
     build_provider_latency_summary,
     build_provider_error_breakdown,
@@ -855,6 +856,9 @@ def get_enrichment_telemetry():
         logger.warning('Failed to read enrichment telemetry: %s', exc)
         return jsonify({'error': 'Failed to read telemetry'}), 500
 
+    hourly_trends = build_hourly_trends(trend_rows, max_points=min(max(since_hours, 1), 168))
+    trend_alerts = build_hourly_trend_alerts(hourly_trends)
+
     overview = build_telemetry_overview(
         total_requests=aggregate['total_requests'] if aggregate else 0,
         fallback_requests=aggregate['fallback_requests'] if aggregate else 0,
@@ -864,7 +868,8 @@ def get_enrichment_telemetry():
         latency_p95_ms=compute_latency_p95_ms(latency_values),
         top_providers=top_providers,
         provider_error_breakdown=build_provider_error_breakdown(attempts_payloads, top_n=5),
-        hourly_trends=build_hourly_trends(trend_rows, max_points=min(max(since_hours, 1), 168)),
+        hourly_trends=hourly_trends,
+        trend_alerts=trend_alerts,
     )
 
     recent = [

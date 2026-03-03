@@ -108,6 +108,15 @@ Adopt **Option A** immediately, while designing interfaces that can later become
   - `latency_p95_ms`
 - Added helper `build_hourly_trends` + unit coverage for mixed timestamp formats and fallback/error math.
 
+### Trend Guardrails (2026-03-02, nightly)
+- Added anomaly detection for rollout guardrails via `trend_alerts` in telemetry overview.
+- Alert types:
+  - `fallback_spike` (fallback rate jump vs recent baseline)
+  - `error_spike` (error-rate jump vs recent baseline)
+  - `latency_p95_regression` (tail-latency regression vs moving baseline)
+- Detection is based on moving hourly baselines (windowed prior points) to reduce one-off noise.
+- Added helper `build_hourly_trend_alerts` and unit coverage for spike/regression scenarios.
+
 ## Migration Phases
 1. Baseline metrics (latency/error per endpoint/provider)
 2. Extract enrichment module behind adapter contract

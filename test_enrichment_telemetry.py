@@ -2,6 +2,7 @@ import json
 import unittest
 
 from enrichment_telemetry import (
+    build_hourly_trend_alerts,
     build_hourly_trends,
     build_provider_error_breakdown,
     build_provider_latency_summary,
@@ -86,6 +87,7 @@ class EnrichmentTelemetryTests(unittest.TestCase):
         self.assertEqual(overview["top_providers"][0]["provider"], "wikidata")
         self.assertEqual(overview["provider_error_breakdown"][0]["provider"], "github")
         self.assertEqual(overview["hourly_trends"], [])
+        self.assertEqual(overview["trend_alerts"], [])
 
     def test_overview_handles_zero_requests(self):
         overview = build_telemetry_overview(
@@ -164,6 +166,21 @@ class EnrichmentTelemetryTests(unittest.TestCase):
         self.assertEqual(second["fallback_rate_pct"], 100.0)
         self.assertEqual(second["error_rate_pct"], 50.0)
         self.assertEqual(second["latency_p95_ms"], 200.0)
+
+    def test_hourly_trend_alerts_detect_spike_and_regression(self):
+        trends = [
+            {"hour": "2026-03-02T00:00:00Z", "fallback_rate_pct": 5.0, "error_rate_pct": 2.0, "latency_p95_ms": 100.0},
+            {"hour": "2026-03-02T01:00:00Z", "fallback_rate_pct": 8.0, "error_rate_pct": 3.0, "latency_p95_ms": 110.0},
+            {"hour": "2026-03-02T02:00:00Z", "fallback_rate_pct": 10.0, "error_rate_pct": 4.0, "latency_p95_ms": 120.0},
+            {"hour": "2026-03-02T03:00:00Z", "fallback_rate_pct": 45.0, "error_rate_pct": 30.0, "latency_p95_ms": 320.0},
+        ]
+
+        alerts = build_hourly_trend_alerts(trends, baseline_window=3, min_baseline_points=3)
+        alert_types = {alert["type"] for alert in alerts}
+
+        self.assertIn("fallback_spike", alert_types)
+        self.assertIn("error_spike", alert_types)
+        self.assertIn("latency_p95_regression", alert_types)
 
 
 if __name__ == "__main__":
