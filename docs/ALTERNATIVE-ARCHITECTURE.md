@@ -117,6 +117,25 @@ Adopt **Option A** immediately, while designing interfaces that can later become
 - Detection is based on moving hourly baselines (windowed prior points) to reduce one-off noise.
 - Added helper `build_hourly_trend_alerts` and unit coverage for spike/regression scenarios.
 
+### Trend-Alert Tuning Overrides (2026-03-03, nightly)
+- Added configurable trend-alert tuning with strict validation via `resolve_trend_alert_config`.
+- New optional query overrides on `GET /api/v1/enrichment/telemetry`:
+  - `trend_baseline_window`
+  - `trend_min_baseline_points`
+  - `trend_fallback_spike_delta_pct`
+  - `trend_error_spike_delta_pct`
+  - `trend_latency_regression_multiplier`
+  - `trend_latency_regression_delta_ms`
+- New optional env defaults (safe baseline tuning without API changes):
+  - `CONTACTIQ_TREND_BASELINE_WINDOW`
+  - `CONTACTIQ_TREND_MIN_BASELINE_POINTS`
+  - `CONTACTIQ_TREND_FALLBACK_SPIKE_DELTA_PCT`
+  - `CONTACTIQ_TREND_ERROR_SPIKE_DELTA_PCT`
+  - `CONTACTIQ_TREND_LATENCY_REGRESSION_MULTIPLIER`
+  - `CONTACTIQ_TREND_LATENCY_REGRESSION_DELTA_MS`
+- Telemetry response now exposes applied trend alert config in `window.trend_alert_config` + `window.trend_alert_overrides`.
+- Added unit coverage for config precedence, defaults, and invalid-override rejection.
+
 ## Migration Phases
 1. Baseline metrics (latency/error per endpoint/provider)
 2. Extract enrichment module behind adapter contract

@@ -9,7 +9,62 @@ from __future__ import annotations
 import json
 from collections import Counter
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
+
+
+TREND_ALERT_DEFAULTS: Dict[str, Any] = {
+    "baseline_window": 6,
+    "min_baseline_points": 3,
+    "fallback_spike_delta_pct": 20.0,
+    "error_spike_delta_pct": 15.0,
+    "latency_regression_multiplier": 1.5,
+    "latency_regression_delta_ms": 120.0,
+}
+
+TREND_ALERT_OVERRIDE_SPECS: Dict[str, Dict[str, Any]] = {
+    "baseline_window": {
+        "query": "trend_baseline_window",
+        "env": "CONTACTIQ_TREND_BASELINE_WINDOW",
+        "type": "int",
+        "min": 1,
+        "max": 168,
+    },
+    "min_baseline_points": {
+        "query": "trend_min_baseline_points",
+        "env": "CONTACTIQ_TREND_MIN_BASELINE_POINTS",
+        "type": "int",
+        "min": 1,
+        "max": 72,
+    },
+    "fallback_spike_delta_pct": {
+        "query": "trend_fallback_spike_delta_pct",
+        "env": "CONTACTIQ_TREND_FALLBACK_SPIKE_DELTA_PCT",
+        "type": "float",
+        "min": 1.0,
+        "max": 100.0,
+    },
+    "error_spike_delta_pct": {
+        "query": "trend_error_spike_delta_pct",
+        "env": "CONTACTIQ_TREND_ERROR_SPIKE_DELTA_PCT",
+        "type": "float",
+        "min": 1.0,
+        "max": 100.0,
+    },
+    "latency_regression_multiplier": {
+        "query": "trend_latency_regression_multiplier",
+        "env": "CONTACTIQ_TREND_LATENCY_REGRESSION_MULTIPLIER",
+        "type": "float",
+        "min": 1.0,
+        "max": 10.0,
+    },
+    "latency_regression_delta_ms": {
+        "query": "trend_latency_regression_delta_ms",
+        "env": "CONTACTIQ_TREND_LATENCY_REGRESSION_DELTA_MS",
+        "type": "float",
+        "min": 1.0,
+        "max": 10000.0,
+    },
+}
 
 
 def _safe_latency(value: Any) -> float:
@@ -30,6 +85,82 @@ def _safe_bool(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return False
+
+
+def _parse_override_value(raw: Any, *, source: str, expected_type: str, minimum: float, maximum: float) -> Any:
+    if expected_type == "int":
+        try:
+            value = int(str(raw).strip())
+        except (TypeError, ValueError):
+            raise ValueError(f"{source} must be an integer")
+    else:
+        try:
+            value = float(str(raw).strip())
+        except (TypeError, ValueError):
+            raise ValueError(f"{source} must be a number")
+
+    if value < minimum or value > maximum:
+        raise ValueError(f"{source} must be between {minimum} and {maximum}")
+
+    return value if expected_type == "int" else float(value)
+
+
+def resolve_trend_alert_config(
+    *,
+    query_params: Optional[Mapping[str, Any]] = None,
+    env: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Resolve trend-alert detection config from defaults + env + query overrides.
+
+    Precedence: defaults < environment variables < query parameters.
+    Invalid env overrides are ignored (safe fallback to defaults), while invalid
+    query overrides raise ValueError so callers can return a 400.
+    """
+
+    resolved = dict(TREND_ALERT_DEFAULTS)
+    applied = {"env": [], "query": []}
+
+    env_values = env or {}
+    query_values = query_params or {}
+
+    for key, spec in TREND_ALERT_OVERRIDE_SPECS.items():
+        raw_env = env_values.get(spec["env"])
+        if raw_env in (None, ""):
+            continue
+        try:
+            resolved[key] = _parse_override_value(
+                raw_env,
+                source=spec["env"],
+                expected_type=spec["type"],
+                minimum=float(spec["min"]),
+                maximum=float(spec["max"]),
+            )
+            applied["env"].append(spec["env"])
+        except ValueError:
+            # Keep default when env values are malformed.
+            continue
+
+    for key, spec in TREND_ALERT_OVERRIDE_SPECS.items():
+        raw_query = query_values.get(spec["query"])
+        if raw_query in (None, ""):
+            continue
+
+        resolved[key] = _parse_override_value(
+            raw_query,
+            source=spec["query"],
+            expected_type=spec["type"],
+            minimum=float(spec["min"]),
+            maximum=float(spec["max"]),
+        )
+        applied["query"].append(spec["query"])
+
+    if int(resolved["min_baseline_points"]) > int(resolved["baseline_window"]):
+        raise ValueError("trend_min_baseline_points must be less than or equal to trend_baseline_window")
+
+    return {
+        "config": resolved,
+        "applied": applied,
+    }
 
 
 def _parse_hour_bucket(value: Any) -> Optional[str]:

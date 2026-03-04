@@ -9,6 +9,7 @@ from enrichment_telemetry import (
     build_telemetry_overview,
     build_telemetry_row,
     compute_latency_p95_ms,
+    resolve_trend_alert_config,
 )
 
 
@@ -181,6 +182,42 @@ class EnrichmentTelemetryTests(unittest.TestCase):
         self.assertIn("fallback_spike", alert_types)
         self.assertIn("error_spike", alert_types)
         self.assertIn("latency_p95_regression", alert_types)
+
+
+    def test_resolve_trend_alert_config_defaults(self):
+        resolved = resolve_trend_alert_config()
+
+        self.assertEqual(resolved["config"]["baseline_window"], 6)
+        self.assertEqual(resolved["config"]["min_baseline_points"], 3)
+        self.assertEqual(resolved["applied"]["env"], [])
+        self.assertEqual(resolved["applied"]["query"], [])
+
+    def test_resolve_trend_alert_config_env_and_query_precedence(self):
+        resolved = resolve_trend_alert_config(
+            query_params={"trend_baseline_window": "9", "trend_error_spike_delta_pct": "22.5"},
+            env={
+                "CONTACTIQ_TREND_BASELINE_WINDOW": "7",
+                "CONTACTIQ_TREND_FALLBACK_SPIKE_DELTA_PCT": "25",
+            },
+        )
+
+        self.assertEqual(resolved["config"]["baseline_window"], 9)
+        self.assertEqual(resolved["config"]["fallback_spike_delta_pct"], 25.0)
+        self.assertEqual(resolved["config"]["error_spike_delta_pct"], 22.5)
+        self.assertIn("CONTACTIQ_TREND_BASELINE_WINDOW", resolved["applied"]["env"])
+        self.assertIn("trend_baseline_window", resolved["applied"]["query"])
+
+    def test_resolve_trend_alert_config_rejects_invalid_query(self):
+        with self.assertRaises(ValueError):
+            resolve_trend_alert_config(query_params={"trend_latency_regression_multiplier": "zero"})
+
+        with self.assertRaises(ValueError):
+            resolve_trend_alert_config(
+                query_params={
+                    "trend_baseline_window": "2",
+                    "trend_min_baseline_points": "3",
+                }
+            )
 
 
 if __name__ == "__main__":

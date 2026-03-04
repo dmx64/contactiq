@@ -32,6 +32,7 @@ from enrichment_telemetry import (
     build_telemetry_overview,
     build_telemetry_row,
     compute_latency_p95_ms,
+    resolve_trend_alert_config,
 )
 
 # Flask App Configuration
@@ -763,6 +764,16 @@ def get_enrichment_telemetry():
     except ValueError:
         return jsonify({'error': 'since_hours must be an integer'}), 400
 
+    try:
+        trend_alert_config_state = resolve_trend_alert_config(
+            query_params=request.args,
+            env=os.environ,
+        )
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    trend_alert_config = trend_alert_config_state['config']
+
     where_clauses = ["user_id = ?", "mode = 'adapter_chain'", "created_at >= datetime('now', ?)"]
     params = [request.user_id, f'-{since_hours} hours']
 
@@ -857,7 +868,10 @@ def get_enrichment_telemetry():
         return jsonify({'error': 'Failed to read telemetry'}), 500
 
     hourly_trends = build_hourly_trends(trend_rows, max_points=min(max(since_hours, 1), 168))
-    trend_alerts = build_hourly_trend_alerts(hourly_trends)
+    trend_alerts = build_hourly_trend_alerts(
+        hourly_trends,
+        **trend_alert_config,
+    )
 
     overview = build_telemetry_overview(
         total_requests=aggregate['total_requests'] if aggregate else 0,
@@ -895,6 +909,8 @@ def get_enrichment_telemetry():
             'since_hours': since_hours,
             'chain': chain,
             'limit': limit,
+            'trend_alert_config': trend_alert_config,
+            'trend_alert_overrides': trend_alert_config_state['applied'],
         },
         'overview': overview,
         'recent': recent,
