@@ -219,6 +219,53 @@ class EnrichmentTelemetryTests(unittest.TestCase):
                 }
             )
 
+    def test_resolve_trend_alert_config_chain_preset_from_env(self):
+        resolved = resolve_trend_alert_config(
+            chain="person_enrichment",
+            env={
+                "CONTACTIQ_TREND_CHAIN_PRESETS_JSON": json.dumps(
+                    {
+                        "person_enrichment": {
+                            "fallback_spike_delta_pct": 12,
+                            "error_spike_delta_pct": 8,
+                            "baseline_window": 4,
+                        }
+                    }
+                )
+            },
+        )
+
+        self.assertEqual(resolved["config"]["fallback_spike_delta_pct"], 12.0)
+        self.assertEqual(resolved["config"]["error_spike_delta_pct"], 8.0)
+        self.assertEqual(resolved["config"]["baseline_window"], 4)
+        self.assertEqual(resolved["applied"]["preset"]["name"], "person_enrichment")
+
+    def test_resolve_trend_alert_config_query_preset_overrides_chain(self):
+        env = {
+            "CONTACTIQ_TREND_CHAIN_PRESETS_JSON": json.dumps(
+                {
+                    "person_enrichment": {"fallback_spike_delta_pct": 12},
+                    "strict_rollout": {"fallback_spike_delta_pct": 6},
+                }
+            )
+        }
+
+        resolved = resolve_trend_alert_config(
+            chain="person_enrichment",
+            query_params={"trend_preset": "strict_rollout"},
+            env=env,
+        )
+
+        self.assertEqual(resolved["config"]["fallback_spike_delta_pct"], 6.0)
+        self.assertEqual(resolved["applied"]["preset"]["name"], "strict_rollout")
+
+    def test_resolve_trend_alert_config_rejects_missing_explicit_preset(self):
+        with self.assertRaises(ValueError):
+            resolve_trend_alert_config(
+                query_params={"trend_preset": "missing_profile"},
+                env={"CONTACTIQ_TREND_CHAIN_PRESETS_JSON": "{}"},
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

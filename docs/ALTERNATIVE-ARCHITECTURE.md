@@ -136,6 +136,44 @@ Adopt **Option A** immediately, while designing interfaces that can later become
 - Telemetry response now exposes applied trend alert config in `window.trend_alert_config` + `window.trend_alert_overrides`.
 - Added unit coverage for config precedence, defaults, and invalid-override rejection.
 
+### Per-Chain Trend Presets + Telemetry Smoke Checklist (2026-03-04, late)
+- Added optional chain preset source: `CONTACTIQ_TREND_CHAIN_PRESETS_JSON`.
+  - Example:
+    ```json
+    {
+      "person_enrichment": {
+        "fallback_spike_delta_pct": 12,
+        "error_spike_delta_pct": 8,
+        "baseline_window": 4
+      },
+      "strict_rollout": {
+        "fallback_spike_delta_pct": 6,
+        "error_spike_delta_pct": 5,
+        "latency_regression_multiplier": 1.2
+      }
+    }
+    ```
+- Preset resolution order is now:
+  - defaults → env defaults → chain preset (`chain` filter match) → explicit query overrides.
+- New optional query selector:
+  - `trend_preset=<name>` to force a named preset regardless of `chain`.
+- Telemetry smoke examples for rollout checks:
+  - Baseline by chain (auto chain preset):
+    ```bash
+    curl -s -H "X-API-Key: $API_KEY" \
+      "http://localhost:5000/api/v1/enrichment/telemetry?since_hours=24&chain=person_enrichment"
+    ```
+  - Explicit strict preset dry run:
+    ```bash
+    curl -s -H "X-API-Key: $API_KEY" \
+      "http://localhost:5000/api/v1/enrichment/telemetry?since_hours=24&trend_preset=strict_rollout"
+    ```
+  - One-off threshold override on top of preset:
+    ```bash
+    curl -s -H "X-API-Key: $API_KEY" \
+      "http://localhost:5000/api/v1/enrichment/telemetry?chain=person_enrichment&trend_fallback_spike_delta_pct=10"
+    ```
+
 ### Nightly Validation Runner (2026-03-04)
 - Added script: `scripts/nightly-alt-check.sh`.
 - Purpose: repeatable nightly guardrail for alternative-solution track.

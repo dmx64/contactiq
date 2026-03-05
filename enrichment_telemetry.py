@@ -66,6 +66,8 @@ TREND_ALERT_OVERRIDE_SPECS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+TREND_ALERT_CHAIN_PRESETS_ENV = "CONTACTIQ_TREND_CHAIN_PRESETS_JSON"
+
 
 def _safe_latency(value: Any) -> float:
     try:
@@ -105,20 +107,79 @@ def _parse_override_value(raw: Any, *, source: str, expected_type: str, minimum:
     return value if expected_type == "int" else float(value)
 
 
+def _normalize_preset_name(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _load_chain_trend_presets(env_values: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
+    raw = env_values.get(TREND_ALERT_CHAIN_PRESETS_ENV)
+    if raw in (None, ""):
+        return {}
+
+    parsed: Any = raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+
+    if not isinstance(parsed, Mapping):
+        return {}
+
+    presets: Dict[str, Dict[str, Any]] = {}
+
+    for preset_name, preset_overrides in parsed.items():
+        if not isinstance(preset_overrides, Mapping):
+            continue
+
+        normalized_name = _normalize_preset_name(preset_name)
+        if not normalized_name:
+            continue
+
+        valid_overrides: Dict[str, Any] = {}
+        for key, spec in TREND_ALERT_OVERRIDE_SPECS.items():
+            if key not in preset_overrides:
+                continue
+
+            try:
+                valid_overrides[key] = _parse_override_value(
+                    preset_overrides[key],
+                    source=f"{TREND_ALERT_CHAIN_PRESETS_ENV}.{preset_name}.{key}",
+                    expected_type=spec["type"],
+                    minimum=float(spec["min"]),
+                    maximum=float(spec["max"]),
+                )
+            except ValueError:
+                continue
+
+        if not valid_overrides:
+            continue
+
+        candidate = dict(TREND_ALERT_DEFAULTS)
+        candidate.update(valid_overrides)
+        if int(candidate["min_baseline_points"]) > int(candidate["baseline_window"]):
+            continue
+
+        presets[normalized_name] = valid_overrides
+
+    return presets
+
+
 def resolve_trend_alert_config(
     *,
     query_params: Optional[Mapping[str, Any]] = None,
     env: Optional[Mapping[str, Any]] = None,
+    chain: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Resolve trend-alert detection config from defaults + env + query overrides.
+    """Resolve trend-alert detection config from defaults + env + presets + query.
 
-    Precedence: defaults < environment variables < query parameters.
-    Invalid env overrides are ignored (safe fallback to defaults), while invalid
-    query overrides raise ValueError so callers can return a 400.
+    Precedence: defaults < environment variables < chain preset < query params.
+    Invalid env/preset overrides are ignored (safe fallback), while invalid query
+    overrides raise ValueError so callers can return a 400.
     """
 
     resolved = dict(TREND_ALERT_DEFAULTS)
-    applied = {"env": [], "query": []}
+    applied = {"env": [], "query": [], "preset": None}
 
     env_values = env or {}
     query_values = query_params or {}
@@ -139,6 +200,25 @@ def resolve_trend_alert_config(
         except ValueError:
             # Keep default when env values are malformed.
             continue
+
+    chain_presets = _load_chain_trend_presets(env_values)
+
+    requested_preset_raw = query_values.get("trend_preset")
+    requested_preset = _normalize_preset_name(requested_preset_raw)
+    chain_preset = _normalize_preset_name(chain)
+
+    selected_preset = requested_preset or chain_preset
+    if selected_preset:
+        selected_overrides = chain_presets.get(selected_preset)
+        if selected_overrides:
+            resolved.update(selected_overrides)
+            applied["preset"] = {
+                "name": selected_preset,
+                "source": TREND_ALERT_CHAIN_PRESETS_ENV,
+                "keys": sorted(selected_overrides.keys()),
+            }
+        elif requested_preset:
+            raise ValueError(f"trend_preset not found: {requested_preset_raw}")
 
     for key, spec in TREND_ALERT_OVERRIDE_SPECS.items():
         raw_query = query_values.get(spec["query"])

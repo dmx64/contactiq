@@ -768,6 +768,7 @@ def get_enrichment_telemetry():
         trend_alert_config_state = resolve_trend_alert_config(
             query_params=request.args,
             env=os.environ,
+            chain=chain,
         )
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
