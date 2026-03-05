@@ -136,6 +136,18 @@ Adopt **Option A** immediately, while designing interfaces that can later become
 - Telemetry response now exposes applied trend alert config in `window.trend_alert_config` + `window.trend_alert_overrides`.
 - Added unit coverage for config precedence, defaults, and invalid-override rejection.
 
+### Nightly Validation Runner (2026-03-04)
+- Added script: `scripts/nightly-alt-check.sh`.
+- Purpose: repeatable nightly guardrail for alternative-solution track.
+- Checks:
+  - Python compile on core files (`server.py`, router, adapters, telemetry)
+  - unit tests for adapters/router/telemetry
+  - route sanity for `/api/v1/enrichment/telemetry`
+- Usage:
+  ```bash
+  ./scripts/nightly-alt-check.sh
+  ```
+
 ## Migration Phases
 1. Baseline metrics (latency/error per endpoint/provider)
 2. Extract enrichment module behind adapter contract
