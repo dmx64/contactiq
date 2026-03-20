@@ -917,8 +917,1146 @@ def get_enrichment_telemetry():
         'recent': recent,
     })
 
-# ... continuing with remaining 44 endpoints ...
-# [Due to length limits, I'll create the full file in parts]
+# ═══════════════════════════════════════════════════════════
+# CONTACTS — remaining 9 endpoints
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/v1/contacts/<int:contact_id>', methods=['PUT'])
+@api_key_required
+def update_contact(contact_id):
+    """Update an existing contact."""
+    data = request.get_json() or {}
+    log_api_usage(request.user_id, 'contacts/update')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM contacts WHERE id = ? AND user_id = ?', (contact_id, request.user_id))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': 'Contact not found'}), 404
+    fields = []
+    values = []
+    for field in ['email', 'phone', 'name', 'company', 'source']:
+        if field in data:
+            fields.append(f'{field} = ?')
+            values.append(data[field])
+    if 'enriched_data' in data:
+        fields.append('enriched_data = ?')
+        values.append(json.dumps(data['enriched_data']) if isinstance(data['enriched_data'], dict) else data['enriched_data'])
+    if not fields:
+        conn.close()
+        return jsonify({'error': 'No fields to update'}), 400
+    fields.append('updated_at = CURRENT_TIMESTAMP')
+    values.extend([contact_id, request.user_id])
+    cursor.execute(f'UPDATE contacts SET {", ".join(fields)} WHERE id = ? AND user_id = ?', values)
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'updated', 'id': contact_id})
+
+
+@app.route('/api/v1/contacts/<int:contact_id>', methods=['DELETE'])
+@api_key_required
+def delete_contact(contact_id):
+    """Delete a contact."""
+    log_api_usage(request.user_id, 'contacts/delete')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM contacts WHERE id = ? AND user_id = ?', (contact_id, request.user_id))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': 'Contact not found'}), 404
+    cursor.execute('DELETE FROM contacts WHERE id = ? AND user_id = ?', (contact_id, request.user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'deleted', 'id': contact_id})
+
+
+@app.route('/api/v1/contacts/<int:contact_id>/enrich', methods=['POST'])
+@api_key_required
+def enrich_contact_endpoint(contact_id):
+    """Trigger enrichment for a contact."""
+    log_api_usage(request.user_id, 'contacts/enrich')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM contacts WHERE id = ? AND user_id = ?', (contact_id, request.user_id))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Contact not found'}), 404
+    columns = [d[0] for d in cursor.description]
+    contact = dict(zip(columns, row))
+    contact_data = {
+        'full_name': contact.get('name', ''),
+        'email': contact.get('email'),
+        'phone': contact.get('phone'),
+        'company': contact.get('company'),
+    }
+    result = enrichment_pipeline.enrich_contact(contact_data)
+    cursor.execute(
+        'UPDATE contacts SET enriched_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+        (json.dumps(result), contact_id, request.user_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'enriched', 'id': contact_id, 'result': result})
+
+
+@app.route('/api/v1/contacts/<int:contact_id>/history', methods=['GET'])
+@api_key_required
+def get_contact_history(contact_id):
+    """Get enrichment history for a contact."""
+    log_api_usage(request.user_id, 'contacts/history')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM contacts WHERE id = ? AND user_id = ?', (contact_id, request.user_id))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': 'Contact not found'}), 404
+    cursor.execute(
+        'SELECT id, endpoint, provider, tokens_used, created_at FROM api_usage WHERE user_id = ? ORDER BY created_at DESC LIMIT 50',
+        (request.user_id,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    history = [{'id': r[0], 'endpoint': r[1], 'provider': r[2], 'tokens_used': r[3], 'created_at': r[4]} for r in rows]
+    return jsonify({'contact_id': contact_id, 'history': history})
+
+
+@app.route('/api/v1/contacts/bulk-import', methods=['POST'])
+@api_key_required
+def bulk_import_contacts():
+    """Bulk import contacts from a JSON array."""
+    data = request.get_json() or {}
+    contacts_list = data.get('contacts', [])
+    if not isinstance(contacts_list, list):
+        return jsonify({'error': 'contacts must be a JSON array'}), 400
+    if len(contacts_list) > 1000:
+        return jsonify({'error': 'Maximum 1000 contacts per import'}), 400
+    log_api_usage(request.user_id, 'contacts/bulk-import')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    imported = 0
+    errors = []
+    for i, c in enumerate(contacts_list):
+        if not isinstance(c, dict):
+            errors.append({'index': i, 'error': 'must be an object'})
+            continue
+        try:
+            cursor.execute(
+                'INSERT INTO contacts (user_id, email, phone, name, company, source) VALUES (?, ?, ?, ?, ?, ?)',
+                (request.user_id, c.get('email'), c.get('phone'), c.get('name'), c.get('company'), c.get('source', 'bulk-import'))
+            )
+            imported += 1
+        except Exception as e:
+            errors.append({'index': i, 'error': str(e)})
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'ok', 'imported': imported, 'errors': errors})
+
+
+@app.route('/api/v1/contacts/export', methods=['GET'])
+@api_key_required
+def export_contacts():
+    """Export all contacts as JSON."""
+    log_api_usage(request.user_id, 'contacts/export')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM contacts WHERE user_id = ? ORDER BY created_at DESC', (request.user_id,))
+    columns = [d[0] for d in cursor.description]
+    rows = cursor.fetchall()
+    conn.close()
+    contacts = []
+    for row in rows:
+        c = dict(zip(columns, row))
+        if c.get('enriched_data'):
+            try:
+                c['enriched_data'] = json.loads(c['enriched_data'])
+            except Exception:
+                pass
+        contacts.append(c)
+    return jsonify({'status': 'ok', 'count': len(contacts), 'contacts': contacts})
+
+
+@app.route('/api/v1/contacts/search', methods=['POST'])
+@api_key_required
+def search_contacts():
+    """Advanced contact search with filters."""
+    data = request.get_json() or {}
+    log_api_usage(request.user_id, 'contacts/search')
+    query = data.get('query', '')
+    source = data.get('source')
+    limit = min(int(data.get('limit', 50)), 200)
+    offset = int(data.get('offset', 0))
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    where = ['user_id = ?']
+    params = [request.user_id]
+    if query:
+        where.append('(name LIKE ? OR email LIKE ? OR phone LIKE ? OR company LIKE ?)')
+        like = f'%{query}%'
+        params.extend([like, like, like, like])
+    if source:
+        where.append('source = ?')
+        params.append(source)
+    sql = f'SELECT * FROM contacts WHERE {" AND ".join(where)} ORDER BY created_at DESC LIMIT ? OFFSET ?'
+    params.extend([limit, offset])
+    cursor.execute(sql, params)
+    columns = [d[0] for d in cursor.description]
+    rows = cursor.fetchall()
+    conn.close()
+    contacts = [dict(zip(columns, r)) for r in rows]
+    return jsonify({'status': 'ok', 'count': len(contacts), 'contacts': contacts})
+
+
+@app.route('/api/v1/contacts/stats', methods=['GET'])
+@api_key_required
+def contacts_stats():
+    """Count stats by source and date."""
+    log_api_usage(request.user_id, 'contacts/stats')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM contacts WHERE user_id = ?', (request.user_id,))
+    total = cursor.fetchone()[0]
+    cursor.execute(
+        'SELECT source, COUNT(*) as count FROM contacts WHERE user_id = ? GROUP BY source ORDER BY count DESC',
+        (request.user_id,)
+    )
+    by_source = [{'source': r[0], 'count': r[1]} for r in cursor.fetchall()]
+    cursor.execute(
+        "SELECT date(created_at) as day, COUNT(*) as count FROM contacts WHERE user_id = ? GROUP BY day ORDER BY day DESC LIMIT 30",
+        (request.user_id,)
+    )
+    by_date = [{'date': r[0], 'count': r[1]} for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'status': 'ok', 'total': total, 'by_source': by_source, 'by_date': by_date})
+
+
+@app.route('/api/v1/contacts/bulk-delete', methods=['DELETE'])
+@api_key_required
+def bulk_delete_contacts():
+    """Bulk delete contacts by list of IDs."""
+    data = request.get_json() or {}
+    ids = data.get('ids', [])
+    if not isinstance(ids, list) or not ids:
+        return jsonify({'error': 'ids must be a non-empty array'}), 400
+    log_api_usage(request.user_id, 'contacts/bulk-delete')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    placeholders = ','.join('?' * len(ids))
+    params = [request.user_id] + list(ids)
+    cursor.execute(f'DELETE FROM contacts WHERE user_id = ? AND id IN ({placeholders})', params)
+    deleted = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'ok', 'deleted': deleted})
+
+
+# ═══════════════════════════════════════════════════════════
+# CALLER ID — 6 endpoints
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/v1/callerid/identify', methods=['POST'])
+@api_key_required
+def callerid_identify():
+    """Identify a phone number or email."""
+    data = request.get_json() or {}
+    phone = data.get('phone', '').strip()
+    email = data.get('email', '').strip()
+    log_api_usage(request.user_id, 'callerid/identify')
+    result = {}
+    if email:
+        from providers import MailcheckAPI
+        result = MailcheckAPI.validate(email)
+        result['input_type'] = 'email'
+    elif phone:
+        clean_phone = ''.join(filter(str.isdigit, phone))
+        result = {
+            'input_type': 'phone',
+            'phone': phone,
+            'clean_phone': clean_phone,
+            'length': len(clean_phone),
+            'note': 'Basic phone validation only. Use OSINT for deep lookup.',
+        }
+    else:
+        return jsonify({'error': 'phone or email required'}), 400
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO caller_logs (user_id, phone, result, spam_score) VALUES (?, ?, ?, ?)',
+        (request.user_id, phone or email, json.dumps(result), 0.0)
+    )
+    log_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'ok', 'log_id': log_id, 'result': result})
+
+
+@app.route('/api/v1/callerid/history', methods=['GET'])
+@api_key_required
+def callerid_history():
+    """List caller logs for the current user."""
+    log_api_usage(request.user_id, 'callerid/history')
+    limit = min(int(request.args.get('limit', 50)), 200)
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT id, phone, result, spam_score, carrier, location, created_at FROM caller_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
+        (request.user_id, limit)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    logs = []
+    for r in rows:
+        entry = {'id': r[0], 'phone': r[1], 'spam_score': r[3], 'carrier': r[4], 'location': r[5], 'created_at': r[6]}
+        try:
+            entry['result'] = json.loads(r[2]) if r[2] else {}
+        except Exception:
+            entry['result'] = {}
+        logs.append(entry)
+    return jsonify({'status': 'ok', 'count': len(logs), 'logs': logs})
+
+
+@app.route('/api/v1/callerid/report-spam', methods=['POST'])
+@api_key_required
+def callerid_report_spam():
+    """Report a phone number as spam."""
+    data = request.get_json() or {}
+    phone = data.get('phone', '').strip()
+    if not phone:
+        return jsonify({'error': 'phone is required'}), 400
+    log_api_usage(request.user_id, 'callerid/report-spam')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO caller_logs (user_id, phone, result, spam_score) VALUES (?, ?, ?, ?)',
+        (request.user_id, phone, json.dumps({'spam': True, 'reported_by': request.user_id}), 1.0)
+    )
+    log_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'reported', 'log_id': log_id, 'phone': phone})
+
+
+@app.route('/api/v1/callerid/spam-list', methods=['GET'])
+@api_key_required
+def callerid_spam_list():
+    """List phones reported as spam by current user."""
+    log_api_usage(request.user_id, 'callerid/spam-list')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT id, phone, created_at FROM caller_logs WHERE user_id = ? AND spam_score >= 1.0 ORDER BY created_at DESC',
+        (request.user_id,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    spam = [{'id': r[0], 'phone': r[1], 'created_at': r[2]} for r in rows]
+    return jsonify({'status': 'ok', 'count': len(spam), 'spam': spam})
+
+
+@app.route('/api/v1/callerid/history/<int:log_id>', methods=['DELETE'])
+@api_key_required
+def delete_callerid_history(log_id):
+    """Delete a caller log entry."""
+    log_api_usage(request.user_id, 'callerid/history/delete')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM caller_logs WHERE id = ? AND user_id = ?', (log_id, request.user_id))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': 'Log entry not found'}), 404
+    cursor.execute('DELETE FROM caller_logs WHERE id = ? AND user_id = ?', (log_id, request.user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'deleted', 'id': log_id})
+
+
+@app.route('/api/v1/callerid/stats', methods=['GET'])
+@api_key_required
+def callerid_stats():
+    """Stats on caller logs."""
+    log_api_usage(request.user_id, 'callerid/stats')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM caller_logs WHERE user_id = ?', (request.user_id,))
+    total = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM caller_logs WHERE user_id = ? AND spam_score >= 1.0', (request.user_id,))
+    spam_total = cursor.fetchone()[0]
+    cursor.execute(
+        "SELECT date(created_at) as day, COUNT(*) as count FROM caller_logs WHERE user_id = ? GROUP BY day ORDER BY day DESC LIMIT 7",
+        (request.user_id,)
+    )
+    by_date = [{'date': r[0], 'count': r[1]} for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'status': 'ok', 'total': total, 'spam_total': spam_total, 'by_date': by_date})
+
+
+# ═══════════════════════════════════════════════════════════
+# OSINT — 10 endpoints
+# ═══════════════════════════════════════════════════════════
+
+def _check_osint_tier():
+    """Return 403 response if user is on free tier, else None."""
+    if getattr(request, 'user_tier', 'free') == 'free':
+        return jsonify({'error': 'OSINT features require pro or enterprise tier'}), 403
+    return None
+
+
+@app.route('/api/v1/osint/investigate', methods=['POST'])
+@api_key_required
+def osint_investigate():
+    """Full OSINT investigation (pro/enterprise only)."""
+    err = _check_osint_tier()
+    if err:
+        return err
+    data = request.get_json() or {}
+    query = data.get('query', '').strip()
+    query_type = data.get('type', 'email').strip()
+    if not query:
+        return jsonify({'error': 'query is required'}), 400
+    log_api_usage(request.user_id, 'osint/investigate')
+    result = osint_engine.full_investigation(query, query_type)
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    tools_used = list(result.get('tools', {}).keys())
+    cursor.execute(
+        'INSERT INTO osint_investigations (user_id, query, query_type, results, tools_used) VALUES (?, ?, ?, ?, ?)',
+        (request.user_id, query, query_type, json.dumps(result), json.dumps(tools_used))
+    )
+    inv_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'ok', 'id': inv_id, 'result': result})
+
+
+@app.route('/api/v1/osint/email', methods=['POST'])
+@api_key_required
+def osint_email():
+    """Email OSINT (pro/enterprise only)."""
+    err = _check_osint_tier()
+    if err:
+        return err
+    data = request.get_json() or {}
+    email = data.get('email', '').strip()
+    if not email:
+        return jsonify({'error': 'email is required'}), 400
+    log_api_usage(request.user_id, 'osint/email')
+    result = osint_engine.investigate_email(email)
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO osint_investigations (user_id, query, query_type, results, tools_used) VALUES (?, ?, ?, ?, ?)',
+        (request.user_id, email, 'email', json.dumps(result), json.dumps(['theharvester', 'holehe']))
+    )
+    inv_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'ok', 'id': inv_id, 'result': result})
+
+
+@app.route('/api/v1/osint/username', methods=['POST'])
+@api_key_required
+def osint_username():
+    """Username OSINT (pro/enterprise only)."""
+    err = _check_osint_tier()
+    if err:
+        return err
+    data = request.get_json() or {}
+    username = data.get('username', '').strip()
+    if not username:
+        return jsonify({'error': 'username is required'}), 400
+    log_api_usage(request.user_id, 'osint/username')
+    result = osint_engine.investigate_username(username)
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO osint_investigations (user_id, query, query_type, results, tools_used) VALUES (?, ?, ?, ?, ?)',
+        (request.user_id, username, 'username', json.dumps(result), json.dumps(['sherlock']))
+    )
+    inv_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'ok', 'id': inv_id, 'result': result})
+
+
+@app.route('/api/v1/osint/phone', methods=['POST'])
+@api_key_required
+def osint_phone():
+    """Phone OSINT (pro/enterprise only)."""
+    err = _check_osint_tier()
+    if err:
+        return err
+    data = request.get_json() or {}
+    phone = data.get('phone', '').strip()
+    if not phone:
+        return jsonify({'error': 'phone is required'}), 400
+    log_api_usage(request.user_id, 'osint/phone')
+    result = osint_engine.investigate_phone(phone)
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO osint_investigations (user_id, query, query_type, results, tools_used) VALUES (?, ?, ?, ?, ?)',
+        (request.user_id, phone, 'phone', json.dumps(result), json.dumps(['phoneinfoga']))
+    )
+    inv_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'ok', 'id': inv_id, 'result': result})
+
+
+@app.route('/api/v1/osint/domain', methods=['POST'])
+@api_key_required
+def osint_domain():
+    """Domain OSINT (pro/enterprise only)."""
+    err = _check_osint_tier()
+    if err:
+        return err
+    data = request.get_json() or {}
+    domain = data.get('domain', '').strip()
+    if not domain:
+        return jsonify({'error': 'domain is required'}), 400
+    log_api_usage(request.user_id, 'osint/domain')
+    result = osint_engine.investigate_domain(domain)
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO osint_investigations (user_id, query, query_type, results, tools_used) VALUES (?, ?, ?, ?, ?)',
+        (request.user_id, domain, 'domain', json.dumps(result), json.dumps(['subfinder', 'theharvester']))
+    )
+    inv_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'ok', 'id': inv_id, 'result': result})
+
+
+@app.route('/api/v1/osint/history', methods=['GET'])
+@api_key_required
+def osint_history():
+    """List all OSINT investigations for the current user."""
+    log_api_usage(request.user_id, 'osint/history')
+    limit = min(int(request.args.get('limit', 20)), 100)
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT id, query, query_type, tools_used, created_at FROM osint_investigations WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
+        (request.user_id, limit)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    investigations = []
+    for r in rows:
+        entry = {'id': r[0], 'query': r[1], 'type': r[2], 'created_at': r[4]}
+        try:
+            entry['tools_used'] = json.loads(r[3]) if r[3] else []
+        except Exception:
+            entry['tools_used'] = []
+        investigations.append(entry)
+    return jsonify({'status': 'ok', 'count': len(investigations), 'investigations': investigations})
+
+
+@app.route('/api/v1/osint/history/<int:inv_id>', methods=['GET'])
+@api_key_required
+def osint_history_detail(inv_id):
+    """Get a single OSINT investigation."""
+    log_api_usage(request.user_id, 'osint/history/detail')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT id, query, query_type, results, tools_used, created_at FROM osint_investigations WHERE id = ? AND user_id = ?',
+        (inv_id, request.user_id)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Investigation not found'}), 404
+    result = {'id': row[0], 'query': row[1], 'type': row[2], 'created_at': row[5]}
+    try:
+        result['results'] = json.loads(row[3]) if row[3] else {}
+    except Exception:
+        result['results'] = {}
+    try:
+        result['tools_used'] = json.loads(row[4]) if row[4] else []
+    except Exception:
+        result['tools_used'] = []
+    return jsonify({'status': 'ok', 'investigation': result})
+
+
+@app.route('/api/v1/osint/history/<int:inv_id>', methods=['DELETE'])
+@api_key_required
+def osint_history_delete(inv_id):
+    """Delete an OSINT investigation."""
+    log_api_usage(request.user_id, 'osint/history/delete')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM osint_investigations WHERE id = ? AND user_id = ?', (inv_id, request.user_id))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': 'Investigation not found'}), 404
+    cursor.execute('DELETE FROM osint_investigations WHERE id = ? AND user_id = ?', (inv_id, request.user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'deleted', 'id': inv_id})
+
+
+@app.route('/api/v1/osint/stats', methods=['GET'])
+@api_key_required
+def osint_stats():
+    """OSINT investigation stats."""
+    log_api_usage(request.user_id, 'osint/stats')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM osint_investigations WHERE user_id = ?', (request.user_id,))
+    total = cursor.fetchone()[0]
+    cursor.execute(
+        'SELECT query_type, COUNT(*) as count FROM osint_investigations WHERE user_id = ? GROUP BY query_type ORDER BY count DESC',
+        (request.user_id,)
+    )
+    by_type = [{'type': r[0], 'count': r[1]} for r in cursor.fetchall()]
+    cursor.execute(
+        "SELECT date(created_at) as day, COUNT(*) as count FROM osint_investigations WHERE user_id = ? GROUP BY day ORDER BY day DESC LIMIT 7",
+        (request.user_id,)
+    )
+    by_date = [{'date': r[0], 'count': r[1]} for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'status': 'ok', 'total': total, 'by_type': by_type, 'by_date': by_date})
+
+
+@app.route('/api/v1/osint/batch', methods=['POST'])
+@api_key_required
+def osint_batch():
+    """Batch OSINT investigations (up to 5 queries, pro/enterprise only)."""
+    err = _check_osint_tier()
+    if err:
+        return err
+    data = request.get_json() or {}
+    queries = data.get('queries', [])
+    if not isinstance(queries, list) or not queries:
+        return jsonify({'error': 'queries must be a non-empty array'}), 400
+    if len(queries) > 5:
+        return jsonify({'error': 'Maximum 5 queries per batch'}), 400
+    log_api_usage(request.user_id, 'osint/batch')
+    results = []
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    for q in queries:
+        if not isinstance(q, dict):
+            results.append({'error': 'each query must be {type, value}'})
+            continue
+        qtype = q.get('type', 'email')
+        qvalue = q.get('value', '').strip()
+        if not qvalue:
+            results.append({'error': 'value is required', 'query': q})
+            continue
+        inv_result = osint_engine.full_investigation(qvalue, qtype)
+        tools_used = list(inv_result.get('tools', {}).keys())
+        cursor.execute(
+            'INSERT INTO osint_investigations (user_id, query, query_type, results, tools_used) VALUES (?, ?, ?, ?, ?)',
+            (request.user_id, qvalue, qtype, json.dumps(inv_result), json.dumps(tools_used))
+        )
+        inv_id = cursor.lastrowid
+        results.append({'id': inv_id, 'query': qvalue, 'type': qtype, 'result': inv_result})
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'ok', 'count': len(results), 'results': results})
+
+
+# ═══════════════════════════════════════════════════════════
+# QR CARDS — 8 endpoints
+# ═══════════════════════════════════════════════════════════
+
+import qrcode
+import io
+import base64
+
+
+def _generate_qr_b64(data_str):
+    """Generate a QR code from a string and return base64 PNG."""
+    try:
+        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(data_str)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        buf.seek(0)
+        return base64.b64encode(buf.read()).decode('utf-8')
+    except Exception as e:
+        return None
+
+
+@app.route('/api/v1/qrcards', methods=['POST'])
+@api_key_required
+def create_qrcard():
+    """Create a new QR card."""
+    data = request.get_json() or {}
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    log_api_usage(request.user_id, 'qrcards/create')
+    card_data = {
+        'name': name,
+        'title': data.get('title'),
+        'company': data.get('company'),
+        'email': data.get('email'),
+        'phone': data.get('phone'),
+        'website': data.get('website'),
+        'custom': data.get('custom', {}),
+    }
+    vcard_str = f"BEGIN:VCARD\nVERSION:3.0\nFN:{name}\n"
+    if data.get('email'):
+        vcard_str += f"EMAIL:{data['email']}\n"
+    if data.get('phone'):
+        vcard_str += f"TEL:{data['phone']}\n"
+    if data.get('company'):
+        vcard_str += f"ORG:{data['company']}\n"
+    if data.get('website'):
+        vcard_str += f"URL:{data['website']}\n"
+    vcard_str += "END:VCARD"
+    qr_b64 = _generate_qr_b64(vcard_str)
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO qr_cards (user_id, name, title, company, email, phone, website, card_data, qr_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        (request.user_id, name, data.get('title'), data.get('company'), data.get('email'),
+         data.get('phone'), data.get('website'), json.dumps(card_data), qr_b64)
+    )
+    card_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'created', 'id': card_id, 'qr_code': qr_b64})
+
+
+@app.route('/api/v1/qrcards', methods=['GET'])
+@api_key_required
+def list_qrcards():
+    """List all QR cards for the current user."""
+    log_api_usage(request.user_id, 'qrcards/list')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT id, name, title, company, email, phone, website, created_at FROM qr_cards WHERE user_id = ? ORDER BY created_at DESC',
+        (request.user_id,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    cards = [
+        {'id': r[0], 'name': r[1], 'title': r[2], 'company': r[3], 'email': r[4], 'phone': r[5], 'website': r[6], 'created_at': r[7]}
+        for r in rows
+    ]
+    return jsonify({'status': 'ok', 'count': len(cards), 'cards': cards})
+
+
+@app.route('/api/v1/qrcards/<int:card_id>', methods=['GET'])
+@api_key_required
+def get_qrcard(card_id):
+    """Get a single QR card."""
+    log_api_usage(request.user_id, 'qrcards/get')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT id, name, title, company, email, phone, website, card_data, qr_code, created_at FROM qr_cards WHERE id = ? AND user_id = ?',
+        (card_id, request.user_id)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Card not found'}), 404
+    card = {'id': row[0], 'name': row[1], 'title': row[2], 'company': row[3], 'email': row[4],
+            'phone': row[5], 'website': row[6], 'created_at': row[9]}
+    try:
+        card['card_data'] = json.loads(row[7]) if row[7] else {}
+    except Exception:
+        card['card_data'] = {}
+    card['qr_code'] = row[8]
+    return jsonify({'status': 'ok', 'card': card})
+
+
+@app.route('/api/v1/qrcards/<int:card_id>', methods=['PUT'])
+@api_key_required
+def update_qrcard(card_id):
+    """Update a QR card."""
+    data = request.get_json() or {}
+    log_api_usage(request.user_id, 'qrcards/update')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM qr_cards WHERE id = ? AND user_id = ?', (card_id, request.user_id))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': 'Card not found'}), 404
+    fields = []
+    values = []
+    for field in ['name', 'title', 'company', 'email', 'phone', 'website']:
+        if field in data:
+            fields.append(f'{field} = ?')
+            values.append(data[field])
+    if fields:
+        # Regenerate QR if contact fields changed
+        cursor.execute('SELECT name, title, company, email, phone, website FROM qr_cards WHERE id = ?', (card_id,))
+        existing = cursor.fetchone()
+        merged = {
+            'name': data.get('name', existing[0]),
+            'email': data.get('email', existing[3]),
+            'phone': data.get('phone', existing[4]),
+            'company': data.get('company', existing[2]),
+            'website': data.get('website', existing[5]),
+        }
+        vcard_str = f"BEGIN:VCARD\nVERSION:3.0\nFN:{merged['name']}\n"
+        if merged.get('email'):
+            vcard_str += f"EMAIL:{merged['email']}\n"
+        if merged.get('phone'):
+            vcard_str += f"TEL:{merged['phone']}\n"
+        if merged.get('company'):
+            vcard_str += f"ORG:{merged['company']}\n"
+        if merged.get('website'):
+            vcard_str += f"URL:{merged['website']}\n"
+        vcard_str += "END:VCARD"
+        qr_b64 = _generate_qr_b64(vcard_str)
+        if qr_b64:
+            fields.append('qr_code = ?')
+            values.append(qr_b64)
+        card_data_val = json.dumps(merged)
+        fields.append('card_data = ?')
+        values.append(card_data_val)
+        values.extend([card_id, request.user_id])
+        cursor.execute(f'UPDATE qr_cards SET {", ".join(fields)} WHERE id = ? AND user_id = ?', values)
+        conn.commit()
+    conn.close()
+    return jsonify({'status': 'updated', 'id': card_id})
+
+
+@app.route('/api/v1/qrcards/<int:card_id>', methods=['DELETE'])
+@api_key_required
+def delete_qrcard(card_id):
+    """Delete a QR card."""
+    log_api_usage(request.user_id, 'qrcards/delete')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM qr_cards WHERE id = ? AND user_id = ?', (card_id, request.user_id))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': 'Card not found'}), 404
+    cursor.execute('DELETE FROM qr_cards WHERE id = ? AND user_id = ?', (card_id, request.user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'deleted', 'id': card_id})
+
+
+@app.route('/api/v1/qrcards/<int:card_id>/qr', methods=['GET'])
+@api_key_required
+def get_qrcard_qr(card_id):
+    """Return QR code as base64 PNG."""
+    log_api_usage(request.user_id, 'qrcards/qr')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT qr_code FROM qr_cards WHERE id = ? AND user_id = ?', (card_id, request.user_id))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Card not found'}), 404
+    return jsonify({'status': 'ok', 'card_id': card_id, 'qr_code': row[0], 'format': 'base64_png'})
+
+
+@app.route('/api/v1/qrcards/scan', methods=['POST'])
+@api_key_required
+def scan_qrcard():
+    """Decode a QR code from a base64 image."""
+    data = request.get_json() or {}
+    image_b64 = data.get('image')
+    if not image_b64:
+        return jsonify({'error': 'image (base64) is required'}), 400
+    log_api_usage(request.user_id, 'qrcards/scan')
+    try:
+        from pyzbar.pyzbar import decode as pyzbar_decode
+        from PIL import Image
+        img_bytes = base64.b64decode(image_b64)
+        img = Image.open(io.BytesIO(img_bytes))
+        decoded = pyzbar_decode(img)
+        if decoded:
+            qr_data = decoded[0].data.decode('utf-8')
+            return jsonify({'status': 'ok', 'data': qr_data})
+        else:
+            return jsonify({'status': 'no_qr_found', 'data': None})
+    except ImportError:
+        return jsonify({'status': 'not_supported', 'error': 'pyzbar not installed. Install: pip install pyzbar'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 400
+
+
+@app.route('/api/v1/qrcards/public/<int:card_id>', methods=['GET'])
+def get_public_qrcard(card_id):
+    """Public endpoint — no auth required. Returns public card data."""
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT id, name, title, company, email, phone, website, qr_code, created_at FROM qr_cards WHERE id = ?',
+        (card_id,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Card not found'}), 404
+    card = {'id': row[0], 'name': row[1], 'title': row[2], 'company': row[3],
+            'email': row[4], 'phone': row[5], 'website': row[6], 'qr_code': row[7], 'created_at': row[8]}
+    return jsonify({'status': 'ok', 'card': card})
+
+
+# ═══════════════════════════════════════════════════════════
+# MONITORING — 7 endpoints
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/v1/monitoring/alerts', methods=['POST'])
+@api_key_required
+def create_alert():
+    """Create a new alert."""
+    data = request.get_json() or {}
+    alert_type = data.get('alert_type', '').strip()
+    title = data.get('title', '').strip()
+    if not alert_type or not title:
+        return jsonify({'error': 'alert_type and title are required'}), 400
+    log_api_usage(request.user_id, 'monitoring/alerts/create')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO alerts (user_id, contact_id, alert_type, title, message, severity) VALUES (?, ?, ?, ?, ?, ?)',
+        (request.user_id, data.get('contact_id'), alert_type, title,
+         data.get('message', ''), data.get('severity', 'info'))
+    )
+    alert_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'created', 'id': alert_id})
+
+
+@app.route('/api/v1/monitoring/alerts', methods=['GET'])
+@api_key_required
+def list_alerts():
+    """List alerts, optionally filtered by read_status."""
+    log_api_usage(request.user_id, 'monitoring/alerts/list')
+    read_status = request.args.get('read_status')
+    limit = min(int(request.args.get('limit', 50)), 200)
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    if read_status is not None:
+        cursor.execute(
+            'SELECT id, contact_id, alert_type, title, message, severity, read_status, created_at FROM alerts WHERE user_id = ? AND read_status = ? ORDER BY created_at DESC LIMIT ?',
+            (request.user_id, 1 if read_status in ('true', '1') else 0, limit)
+        )
+    else:
+        cursor.execute(
+            'SELECT id, contact_id, alert_type, title, message, severity, read_status, created_at FROM alerts WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
+            (request.user_id, limit)
+        )
+    rows = cursor.fetchall()
+    conn.close()
+    alerts = [
+        {'id': r[0], 'contact_id': r[1], 'alert_type': r[2], 'title': r[3],
+         'message': r[4], 'severity': r[5], 'read': bool(r[6]), 'created_at': r[7]}
+        for r in rows
+    ]
+    return jsonify({'status': 'ok', 'count': len(alerts), 'alerts': alerts})
+
+
+@app.route('/api/v1/monitoring/alerts/<int:alert_id>/read', methods=['PUT'])
+@api_key_required
+def mark_alert_read(alert_id):
+    """Mark an alert as read."""
+    log_api_usage(request.user_id, 'monitoring/alerts/read')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM alerts WHERE id = ? AND user_id = ?', (alert_id, request.user_id))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': 'Alert not found'}), 404
+    cursor.execute('UPDATE alerts SET read_status = 1 WHERE id = ? AND user_id = ?', (alert_id, request.user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'updated', 'id': alert_id, 'read': True})
+
+
+@app.route('/api/v1/monitoring/alerts/<int:alert_id>', methods=['DELETE'])
+@api_key_required
+def delete_alert(alert_id):
+    """Delete an alert."""
+    log_api_usage(request.user_id, 'monitoring/alerts/delete')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM alerts WHERE id = ? AND user_id = ?', (alert_id, request.user_id))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': 'Alert not found'}), 404
+    cursor.execute('DELETE FROM alerts WHERE id = ? AND user_id = ?', (alert_id, request.user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'deleted', 'id': alert_id})
+
+
+@app.route('/api/v1/monitoring/news', methods=['POST'])
+@api_key_required
+def monitoring_news():
+    """Search news for a query using GoogleNewsRSS."""
+    data = request.get_json() or {}
+    query = data.get('query', '').strip()
+    if not query:
+        return jsonify({'error': 'query is required'}), 400
+    log_api_usage(request.user_id, 'monitoring/news')
+    from providers import GoogleNewsRSS
+    result = GoogleNewsRSS.search(query, max_results=data.get('max_results', 10))
+    return jsonify({'status': 'ok', 'result': result})
+
+
+@app.route('/api/v1/monitoring/sanctions', methods=['GET'])
+@api_key_required
+def monitoring_sanctions():
+    """Check a name or email against OpenSanctions."""
+    query = request.args.get('query', '').strip()
+    if not query:
+        return jsonify({'error': 'query parameter is required'}), 400
+    log_api_usage(request.user_id, 'monitoring/sanctions')
+    from providers import OpenSanctionsAPI
+    result = OpenSanctionsAPI.check(query)
+    return jsonify({'status': 'ok', 'query': query, 'result': result})
+
+
+@app.route('/api/v1/monitoring/stats', methods=['GET'])
+@api_key_required
+def monitoring_stats():
+    """Alert stats for the current user."""
+    log_api_usage(request.user_id, 'monitoring/stats')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM alerts WHERE user_id = ?', (request.user_id,))
+    total = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM alerts WHERE user_id = ? AND read_status = 0', (request.user_id,))
+    unread = cursor.fetchone()[0]
+    cursor.execute(
+        'SELECT severity, COUNT(*) as count FROM alerts WHERE user_id = ? GROUP BY severity ORDER BY count DESC',
+        (request.user_id,)
+    )
+    by_severity = [{'severity': r[0], 'count': r[1]} for r in cursor.fetchall()]
+    cursor.execute(
+        "SELECT date(created_at) as day, COUNT(*) as count FROM alerts WHERE user_id = ? GROUP BY day ORDER BY day DESC LIMIT 7",
+        (request.user_id,)
+    )
+    by_date = [{'date': r[0], 'count': r[1]} for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'status': 'ok', 'total': total, 'unread': unread, 'by_severity': by_severity, 'by_date': by_date})
+
+
+# ═══════════════════════════════════════════════════════════
+# AGENT TOOLS — 5 endpoints
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/v1/agent/enrich', methods=['POST'])
+@api_key_required
+def agent_enrich():
+    """Enrich contact data using the enrichment pipeline."""
+    data = request.get_json() or {}
+    if not data:
+        return jsonify({'error': 'contact data is required'}), 400
+    log_api_usage(request.user_id, 'agent/enrich')
+    result = enrichment_pipeline.enrich_contact(data)
+    return jsonify({'status': 'ok', 'result': result})
+
+
+@app.route('/api/v1/agent/analyze', methods=['POST'])
+@api_key_required
+def agent_analyze():
+    """Analyze contact completeness and data quality."""
+    data = request.get_json() or {}
+    log_api_usage(request.user_id, 'agent/analyze')
+    fields_present = []
+    fields_missing = []
+    key_fields = ['email', 'phone', 'name', 'company', 'website', 'linkedin', 'twitter', 'location', 'title', 'bio']
+    for f in key_fields:
+        if data.get(f):
+            fields_present.append(f)
+        else:
+            fields_missing.append(f)
+    score = int(len(fields_present) / len(key_fields) * 100)
+    quality_issues = []
+    if data.get('email') and '@' not in data['email']:
+        quality_issues.append({'field': 'email', 'issue': 'invalid format'})
+    if data.get('phone'):
+        clean = ''.join(filter(str.isdigit, data['phone']))
+        if len(clean) < 7:
+            quality_issues.append({'field': 'phone', 'issue': 'too short'})
+    return jsonify({
+        'status': 'ok',
+        'completeness_score': score,
+        'fields_present': fields_present,
+        'fields_missing': fields_missing,
+        'quality_issues': quality_issues,
+        'recommendation': 'Use /agent/enrich to fill missing fields' if fields_missing else 'Contact looks complete',
+    })
+
+
+@app.route('/api/v1/agent/score', methods=['POST'])
+@api_key_required
+def agent_score():
+    """Score one or multiple contacts by completeness (0-100)."""
+    data = request.get_json() or {}
+    log_api_usage(request.user_id, 'agent/score')
+    contacts = data.get('contacts')
+    if contacts is None:
+        contacts = [data]
+    key_fields = ['email', 'phone', 'name', 'company', 'website', 'linkedin', 'twitter', 'location', 'title', 'bio']
+    scored = []
+    for c in contacts:
+        present = sum(1 for f in key_fields if c.get(f))
+        score = int(present / len(key_fields) * 100)
+        scored.append({'contact': c.get('email') or c.get('name') or 'unknown', 'score': score})
+    return jsonify({'status': 'ok', 'scores': scored})
+
+
+@app.route('/api/v1/agent/dedupe', methods=['POST'])
+@api_key_required
+def agent_dedupe():
+    """Find duplicate contacts within the user's contact list (same email or phone)."""
+    log_api_usage(request.user_id, 'agent/dedupe')
+    conn = sqlite3.connect('contactiq.db')
+    cursor = conn.cursor()
+    # Find duplicate emails
+    cursor.execute(
+        '''SELECT email, COUNT(*) as cnt, GROUP_CONCAT(id) as ids
+           FROM contacts WHERE user_id = ? AND email IS NOT NULL AND email != ''
+           GROUP BY email HAVING cnt > 1''',
+        (request.user_id,)
+    )
+    email_dupes = [{'field': 'email', 'value': r[0], 'count': r[1], 'ids': r[2].split(',')} for r in cursor.fetchall()]
+    # Find duplicate phones
+    cursor.execute(
+        '''SELECT phone, COUNT(*) as cnt, GROUP_CONCAT(id) as ids
+           FROM contacts WHERE user_id = ? AND phone IS NOT NULL AND phone != ''
+           GROUP BY phone HAVING cnt > 1''',
+        (request.user_id,)
+    )
+    phone_dupes = [{'field': 'phone', 'value': r[0], 'count': r[1], 'ids': r[2].split(',')} for r in cursor.fetchall()]
+    conn.close()
+    duplicates = email_dupes + phone_dupes
+    return jsonify({'status': 'ok', 'duplicate_groups': len(duplicates), 'duplicates': duplicates})
+
+
+@app.route('/api/v1/agent/status', methods=['GET'])
+@api_key_required
+def agent_status():
+    """Return status of all 17 data providers."""
+    log_api_usage(request.user_id, 'agent/status')
+    from providers import ALL_PROVIDERS
+    provider_status = []
+    for name, info in ALL_PROVIDERS.items():
+        provider_status.append({
+            'name': name,
+            'display_name': getattr(info['class'], 'display_name', name),
+            'category': info.get('category', 'unknown'),
+            'cost': info.get('cost', 'unknown'),
+            'requires_key': info.get('key', False),
+            'available': True,
+        })
+    return jsonify({
+        'status': 'ok',
+        'total_providers': len(provider_status),
+        'providers': provider_status,
+    })
+
 
 if __name__ == '__main__':
     init_database()

@@ -165,3 +165,84 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+class OSINTEngine:
+    """
+    High-level OSINT orchestration engine.
+    Delegates to provider classes from providers.py rather than calling subprocesses directly.
+    """
+
+    def __init__(self):
+        from providers import (
+            SherlockProvider,
+            TheHarvesterProvider,
+            HoleheProvider,
+            SubfinderProvider,
+            PhoneInfogaProvider,
+        )
+        self.sherlock = SherlockProvider()
+        self.theharvester = TheHarvesterProvider()
+        self.holehe = HoleheProvider()
+        self.subfinder = SubfinderProvider()
+        self.phoneinfoga = PhoneInfogaProvider()
+
+    def investigate_email(self, email):
+        """Email OSINT: theHarvester + holehe"""
+        results = {
+            "query": email,
+            "type": "email",
+            "tools": {},
+        }
+        results["tools"]["theharvester"] = self.theharvester.enrich(email)
+        results["tools"]["holehe"] = self.holehe.enrich(email)
+        return results
+
+    def investigate_username(self, username):
+        """Username OSINT: Sherlock"""
+        results = {
+            "query": username,
+            "type": "username",
+            "tools": {},
+        }
+        results["tools"]["sherlock"] = self.sherlock.enrich(username)
+        return results
+
+    def investigate_phone(self, phone):
+        """Phone OSINT: phoneinfoga"""
+        results = {
+            "query": phone,
+            "type": "phone",
+            "tools": {},
+        }
+        results["tools"]["phoneinfoga"] = self.phoneinfoga.enrich(phone)
+        return results
+
+    def investigate_domain(self, domain):
+        """Domain OSINT: subfinder + theHarvester"""
+        results = {
+            "query": domain,
+            "type": "domain",
+            "tools": {},
+        }
+        results["tools"]["subfinder"] = self.subfinder.enrich(domain)
+        results["tools"]["theharvester"] = self.theharvester.enrich(domain)
+        return results
+
+    def full_investigation(self, query, query_type):
+        """Run appropriate OSINT tools based on query type."""
+        query_type = query_type.lower()
+        if query_type == "email":
+            return self.investigate_email(query)
+        elif query_type == "username":
+            return self.investigate_username(query)
+        elif query_type == "phone":
+            return self.investigate_phone(query)
+        elif query_type == "domain":
+            return self.investigate_domain(query)
+        else:
+            return {
+                "query": query,
+                "type": query_type,
+                "error": f"Unknown query type: {query_type}. Use email, username, phone, or domain.",
+            }
